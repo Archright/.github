@@ -46,5 +46,5 @@ This choice reflects our core belief: **Technical integrity can only be achieved
 **[wintrover (Thought Trajectory Architect)]**  
 Designing the logical structures and decision flows that exist beneath the physical implementation of systems.
 
-- Blog: [wintrover.io](https://wintrover.github.io)
+- Blog: [wintrover.github.io](https://wintrover.github.io)
 - Contact: [wintrover@gmail.com](mailto:wintrover@gmail.com)
