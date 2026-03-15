@@ -1,57 +1,50 @@
 # 🏛️ Archright
 
-> **Designing the Integrity of Thought, Engineering the Trajectory of Logic.**
+> **"Designing the Integrity of Thought, Engineering the Trajectory of Logic."**
 
-Archright는 소프트웨어 설계의 무결성을 추구하며,  
-아키텍트의 **사고 궤적(Thought Trajectory)**을 디지털 자산으로 전환하는 기술 조직입니다.
+Archright is a technology organization dedicated to the integrity of software design. We specialize in transforming an architect's **Thought Trajectory** into explicit, executable digital assets.
 
-우리는 결과물만큼, 그 결과에 도달하기까지의 **논리적 궤적**을 중요하게 여깁니다.  
-코드는 산출물이고, **사고 궤적**은 재현 가능한 신뢰의 기반입니다.
+We believe that the **logical trajectory** taken to reach a solution is just as critical as the final product itself. In our view, code is an artifact, while the **Thought Trajectory** is the foundation of reproducible trust.
 
 ---
 
 ## 🔭 Our Mission: The Bridge to Integrity
 
-개발자가 AI와 협업하며 내리는 수많은 의사결정이 휘발되지 않도록 기록하고,  
-이를 통해 **Zero-Exception**에 가까운 고신뢰 시스템을 구축합니다.
+Our goal is to ensure that the countless decisions made by developers collaborating with AI are never lost. We aim to build high-reliability systems that approach **'Zero-Exception'** status by capturing the reasoning behind every change.
 
 ### [Devlog] *(In Progress)*
-사고 과정 기록 및 가시화 엔진.  
-대화 문맥과 커밋 히스토리에서 아키텍트의 의도를 추출해 고신뢰 기술 로그를 생성합니다.
+A reasoning record and visualization engine.  
+It extracts the architect's intent from conversation contexts and commit histories to generate high-fidelity technical logs.
 
 ### [Axiom] *(Future)*
-Devlog에서 정제된 논리를 기반으로 한 소프트웨어 무결성 검증 코어 엔진.  
-수학적 증명과 정적 분석을 통해 런타임 오류 없는 환경을 지향합니다.
+A core engine for software integrity verification based on the refined logic from Devlog.  
+Aims for a runtime-error-free environment through mathematical proof and static analysis.
 
 ---
 
-## 🧠 Core Keyword: Thought Trajectory
+## 🧠 Core Concept: Thought Trajectory
 
-**Thought Trajectory**는 단순한 아이디어의 나열이 아닙니다.  
-문제 정의 → 가설 설정 → 검증 → 설계 의사결정으로 이어지는  
-**구조화된 사고의 흐름**을 뜻합니다.
+The **Thought Trajectory** is more than just a sequence of ideas.  
+It is the **structured flow of reasoning** that connects problem definition, hypothesis setting, verification, and final design decisions.
 
-Archright는 이 흐름을 추적 가능하고 검증 가능한 형태로 남겨,  
-개인의 직관을 팀의 집단 지성으로 전환합니다.
+Archright tracks this flow to ensure it remains traceable and verifiable, turning individual intuition into collective intelligence for the team.
 
 ---
 
 ## 🛡️ Open Source & Integrity
 
-Archright의 모든 코어 엔진은 **Apache License 2.0** 아래 오픈소스로 운영됩니다.
+All core engines developed by Archright are released under the **Apache License 2.0**.  
+This choice reflects our core belief: **Technical integrity can only be achieved through transparent, public verification.**
 
-우리가 Apache 2.0을 선택한 이유는 단순합니다:  
-**무결성은 비공개가 아니라, 공개 검증 가능한 설계 궤적 위에서 완성된다**고 믿기 때문입니다.
-
-- **Transparency**: 설계의 궤적은 공개되며 검증 가능합니다.
-- **Reliability**: 특허/권리 조항을 통해 기여자와 사용자 모두의 기술 자산을 보호합니다.
+- **Transparency**: Every design trajectory is made public and remains verifiable by the community.
+- **Reliability**: We protect the technical assets of both contributors and users through the patent and trademark clauses inherent in the Apache 2.0 framework.
 
 ---
 
 ## 👤 Architect
 
-**wintrover (사고 궤적 아키텍트)**  
-시스템의 물리적 구현을 넘어, 그 이면의 논리 구조와 의사결정 흐름을 설계합니다.
+**[wintrover (Thought Trajectory Architect)]**  
+Designing the logical structures and decision flows that exist beneath the physical implementation of systems.
 
 - Blog: [wintrover.io](https://wintrover.io)
 - Contact: [wintrover@gmail.com](mailto:wintrover@gmail.com)
