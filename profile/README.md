@@ -12,11 +12,11 @@ We believe that the **logical trajectory** taken to reach a solution is just as 
 
 Our goal is to ensure that the countless decisions made by developers collaborating with AI are never lost. We aim to build high-reliability systems that approach **'Zero-Exception'** status by capturing the reasoning behind every change.
 
-### [Devlog] *(In Progress)*
+### [Devlog] *(Future)*
 A reasoning record and visualization engine.  
 It extracts the architect's intent from conversation contexts and commit histories to generate high-fidelity technical logs.
 
-### [Axiom] *(Future)*
+### [Axiom] *(In Progress)*
 A core engine for software integrity verification based on the refined logic from Devlog.  
 Aims for a runtime-error-free environment through mathematical proof and static analysis.
 
