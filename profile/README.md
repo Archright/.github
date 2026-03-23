@@ -12,13 +12,13 @@ We believe that the **logical trajectory** taken to reach a solution is just as 
 
 Our goal is to ensure that the countless decisions made by developers collaborating with AI are never lost. We aim to build high-reliability systems that approach **'Zero-Exception'** status by capturing the reasoning behind every change.
 
-### [Devlog] *(Future)*
-A reasoning record and visualization engine.  
-It extracts the architect's intent from conversation contexts and commit histories to generate high-fidelity technical logs.
+### [Axiom] (Core Engine)
+A high-integrity software verification engine and the backbone of the Archright ecosystem.
+It ensures a runtime-error-free environment through formal verification and mathematical proofs, providing the reliability required for complex AI-driven architectures.
 
-### [Axiom] *(In Progress)*
-A core engine for software integrity verification based on the refined logic from Devlog.  
-Aims for a runtime-error-free environment through mathematical proof and static analysis.
+### [Devlog] (Under Development)
+The first application powered by the Axiom engine.
+Devlog captures the architect's intent and "Thought Trajectory" from conversation contexts and commit histories, transforming them into high-fidelity, formally verified technical logs.
 
 ---
 
