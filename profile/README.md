@@ -1,4 +1,4 @@
-# 🏛️ Archright
+# Archright
 
 > **Building verification infrastructure for AI-generated software.**
 
