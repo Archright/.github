@@ -65,67 +65,52 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "CODEOWNERS: FAIL — $1 (fail-closed)" >&2; exit 1; }
-
+          
           POLICY="config/policy/merge_admission.json"
           [ -f "$POLICY" ] || fail "merge_admission.json missing at base"
-
-          # Collect all trust-surface paths: trustSurface array +
-          # extra platform-level trust config files + AGENTS.md +
-          # .github/** (represented by the .github/ directory entry).
-          TRUST_SURFACE="$(jq -r '.trustSurface[]' "$POLICY")"
-          EXTRA_PATHS=$(printf '%s\n%s\n%s' \
-            "config/trusted_writer_set.json" \
-            "config/app_landing_binding.json" \
-            "AGENTS.md")
-          ALL_PATHS="$(printf '%s\n%s' "$TRUST_SURFACE" "$EXTRA_PATHS" | grep -v '^$')"
-
-          # Read CODEOWNERS from base (skip comment lines and blanks).
-          CODEOWNERS_FILE=".github/CODEOWNERS"
-          [ -f "$CODEOWNERS_FILE" ] || fail "CODEOWNERS missing at base"
-
-          # Build list of non-comment CODEOWNERS patterns (first field).
-          PATTERNS="$(grep -v '^[[:space:]]*#' "$CODEOWNERS_FILE" | grep -v '^[[:space:]]*$' | awk '{print $1}')"
-
-          # For each trust-surface path, check if any CODEOWNERS
-          # pattern covers it. Patterns are matched as:
-          #   - exact path match
-          #   - directory prefix (pattern ends with /)
-          #   - **/ suffix glob (e.g., .github/actions/**)
-          #   - wildcard prefix (e.g., .github/workflows/*)
-          MISSING=""
+          
+          # Trust-surface paths (unrooted): trustSurface array + platform trust config.
+          { jq -r '.trustSurface[]' "$POLICY"; printf '%s\n' \
+              "config/trusted_writer_set.json" \
+              "config/app_landing_binding.json" \
+              "AGENTS.md"; } | grep -v '^$' > /tmp/ts_paths.txt
+          [ -s /tmp/ts_paths.txt ] || fail "empty trust-surface path list"
+          
+          # CODEOWNERS patterns: strip comments/blanks and the leading root anchor.
+          grep -v '^[[:space:]]*#' .github/CODEOWNERS \
+            | grep -v '^[[:space:]]*$' \
+            | awk '{print $1}' \
+            | sed 's|^/||' > /tmp/ts_patterns.txt
+          [ -s /tmp/ts_patterns.txt ] || fail "CODEOWNERS missing or empty at base"
+          
+          MISSING=0
           while IFS= read -r path; do
-            [ -z "$path" ] && continue
-            covered=false
-            while IFS= read -r pattern; do
-              [ -z "$pattern" ] && continue
-              # CODEOWNERS anchors paths with a leading slash (/config/...);
-              # trust-surface paths are unrooted (config/...). Normalize.
-              pattern="${pattern#/}"
-              # Exact match
-              [ "$path" = "$pattern" ] && { covered=true; break; }
-              # Directory prefix (pattern ends with /)
-              [[ "$pattern" == */ ]] && [[ "$path" == "$pattern"* ]] && { covered=true; break; }
-              # **/ suffix glob: **/suffix matches any path ending in /suffix
-              if [[ "$pattern" == **/* ]]; then
-                suffix="${pattern#**/}"
-                [[ "$path" == *"/$suffix" || "$path" == "$suffix" ]] && { covered=true; break; }
-              fi
-              # Wildcard prefix (pattern ends with /*)
-              if [[ "$pattern" == */\* ]]; then
-                prefix="${pattern%\*\}"
-                [[ "$path" == "$prefix"* ]] && { covered=true; break; }
-              fi
-            done <<< "$PATTERNS"
-            if [ "$covered" = "false" ]; then
-              MISSING="${MISSING}\\n  $path"
+            covered=0
+            while IFS= read -r pat; do
+              [ -z "$pat" ] && continue
+              case "$pat" in
+                */)
+                  # directory prefix
+                  if [ "${path#"$pat"}" != "$path" ]; then covered=1; break; fi
+                  ;;
+                *)
+                  # native glob match (handles exact paths and * / ** patterns)
+                  case "$path" in
+                    $pat) covered=1; break ;;
+                  esac
+                  ;;
+              esac
+            done < /tmp/ts_patterns.txt
+            if [ "$covered" -eq 0 ]; then
+              echo "MISSING: $path"
+              MISSING=$((MISSING + 1))
             fi
-          done <<< "$ALL_PATHS"
-
-          if [ -n "$MISSING" ]; then
-            fail "trust-surface paths missing CODEOWNERS coverage on base:${MISSING}"
+          done < /tmp/ts_paths.txt
+          
+          if [ "$MISSING" -ne 0 ]; then
+            fail "$MISSING trust-surface path(s) lack CODEOWNERS coverage on base"
           fi
           echo "CODEOWNERS: OK — all trust-surface paths covered on base"
-
   # ──────────────────────────────────────────────────────────────
   # Job 2 — trusted_writer_set atomic pair invariant.
   # Verifies that in the PR head, the blob sha of
@@ -158,23 +143,24 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "WRITER_SET: FAIL — $1 (fail-closed)" >&2; exit 1; }
-
+          
           TWSET="config/trusted_writer_set.json"
           [ -f "$TWSET" ] || fail "trusted_writer_set.json missing in PR head"
-
-          EXPECTED_SHA="$(jq -r '.trustedAdmissionWorkflowSha' "$TWSET")"
+          
+          # trusted_writer_set.json carries full-line // doc comments; strip before jq
+          # (same convention as tools/ci/verify_trusted_writer_set.sh).
+          STRIPPED="$(sed -E 's|^[[:space:]]*//.*$||' "$TWSET")"
+          EXPECTED_SHA="$(printf '%s' "$STRIPPED" | jq -r '.trustedAdmissionWorkflowSha')"
           printf '%s' "$EXPECTED_SHA" | grep -qE '^[0-9a-f]{40}$' \
             || fail "trustedAdmissionWorkflowSha='$EXPECTED_SHA' is not a 40-hex blob sha"
-
-          # Compute the actual blob sha of admission-check.yml in the head tree.
-          ACTUAL_SHA="$(git hash-object .github/workflows/admission-check.yml 2>/dev/null)" \
-            || fail "cannot hash .github/workflows/admission-check.yml in head tree"
-
+          
+          ACTUAL_SHA="$(git hash-object .github/workflows/admission-check.yml)"
+          [ -n "$ACTUAL_SHA" ] || fail "cannot hash .github/workflows/admission-check.yml in head tree"
+          
           [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ] \
             || fail "admission-check.yml blob sha mismatch: expected=$EXPECTED_SHA actual=$ACTUAL_SHA (pair invariant violated)"
-
+          
           echo "WRITER_SET: OK — admission-check.yml blob sha matches trustedAdmissionWorkflowSha in head"
-
       - name: "[integrity] Verify atomicity — both pair files in diff if either is modified"
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
