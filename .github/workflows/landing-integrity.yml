@@ -98,6 +98,9 @@ jobs:
             covered=false
             while IFS= read -r pattern; do
               [ -z "$pattern" ] && continue
+              # CODEOWNERS anchors paths with a leading slash (/config/...);
+              # trust-surface paths are unrooted (config/...). Normalize.
+              pattern="${pattern#/}"
               # Exact match
               [ "$path" = "$pattern" ] && { covered=true; break; }
               # Directory prefix (pattern ends with /)
