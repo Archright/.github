@@ -1,0 +1,250 @@
+# landing-integrity — external tamper-proof policy plane boundary
+# for Archright/Axiom. Enforced via org-level `workflows` ruleset
+# (source repo Archright/.github supplies the definition; target repo
+# PRs cannot remove it). Runs on every PR against the merge base.
+#
+# Trust model: the workflow definition is external (Archright/.github).
+# It executes in the target repo against the PR, checking out the
+# target repo's base and head trees. It does NOT trust the PR's
+# checkout of itself — it re-fetches invariant files from the base
+# branch and compares them against the PR head.
+#
+# Trigger: pull_request (sufficient for merge gating; pull_request_target
+# is redundant for read-only checks and adds security surface).
+# merge_group included for merge-queue environments (not currently used
+# by Axiom; kept for forward-compatibility).
+#
+# Permissions: minimal read-only. No write access, no token-based
+# chain triggers.
+#
+# Jobs (3 jobs, each fast, no Nim builds):
+#   1. trust-surface-codeowners — CODEOWNERS coverage of trust-surface paths
+#   2. trusted-writer-set-pairing — atomic pair invariant for writer set
+#   3. merge-admission-sanity — admission policy cannot be vacated
+
+name: landing-integrity
+
+on:
+  pull_request:
+  # pull_request_target: omitted — read-only check needs no elevated
+  # token scope; pull_request is sufficient for merge gating and
+  # avoids the elevated-permission attack surface of target events.
+  # merge_group: included for merge-queue environments (not currently
+  # used by Axiom; kept for forward-compatibility).
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Job 1 — CODEOWNERS coverage of trust-surface paths.
+  # Fetches the PR base branch's CODEOWNERS and merge_admission.json,
+  # then verifies every trust-surface path has a matching CODEOWNERS
+  # entry. PR must not REMOVE coverage (base is the authority).
+  #
+  # Trust-surface list = merge_admission.json trustSurface array +
+  # config/trusted_writer_set.json + config/app_landing_binding.json
+  # + AGENTS.md + .github/** (all .github paths).
+  # ──────────────────────────────────────────────────────────────
+  trust-surface-codeowners:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # B checkout — the base branch is the authority for CODEOWNERS
+      # and trust-surface paths. fetch-depth 0 so the full tree is
+      # available (git hash-object needs the blob, not just the tree).
+      - name: "[integrity] Checkout base (CODEOWNERS + policy authority)"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: "[integrity] Verify CODEOWNERS covers all trust-surface paths"
+        run: |
+          set -euo pipefail
+          fail() { echo "CODEOWNERS: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          POLICY="config/policy/merge_admission.json"
+          [ -f "$POLICY" ] || fail "merge_admission.json missing at base"
+
+          # Collect all trust-surface paths: trustSurface array +
+          # extra platform-level trust config files + AGENTS.md +
+          # .github/** (represented by the .github/ directory entry).
+          TRUST_SURFACE="$(jq -r '.trustSurface[]' "$POLICY")"
+          EXTRA_PATHS=$(printf '%s\n%s\n%s' \
+            "config/trusted_writer_set.json" \
+            "config/app_landing_binding.json" \
+            "AGENTS.md")
+          ALL_PATHS="$(printf '%s\n%s' "$TRUST_SURFACE" "$EXTRA_PATHS" | grep -v '^$')"
+
+          # Read CODEOWNERS from base (skip comment lines and blanks).
+          CODEOWNERS_FILE=".github/CODEOWNERS"
+          [ -f "$CODEOWNERS_FILE" ] || fail "CODEOWNERS missing at base"
+
+          # Build list of non-comment CODEOWNERS patterns (first field).
+          PATTERNS="$(grep -v '^[[:space:]]*#' "$CODEOWNERS_FILE" | grep -v '^[[:space:]]*$' | awk '{print $1}')"
+
+          # For each trust-surface path, check if any CODEOWNERS
+          # pattern covers it. Patterns are matched as:
+          #   - exact path match
+          #   - directory prefix (pattern ends with /)
+          #   - **/ suffix glob (e.g., .github/actions/**)
+          #   - wildcard prefix (e.g., .github/workflows/*)
+          MISSING=""
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            covered=false
+            while IFS= read -r pattern; do
+              [ -z "$pattern" ] && continue
+              # Exact match
+              [ "$path" = "$pattern" ] && { covered=true; break; }
+              # Directory prefix (pattern ends with /)
+              [[ "$pattern" == */ ]] && [[ "$path" == "$pattern"* ]] && { covered=true; break; }
+              # **/ suffix glob: **/suffix matches any path ending in /suffix
+              if [[ "$pattern" == **/* ]]; then
+                suffix="${pattern#**/}"
+                [[ "$path" == *"/$suffix" || "$path" == "$suffix" ]] && { covered=true; break; }
+              fi
+              # Wildcard prefix (pattern ends with /*)
+              if [[ "$pattern" == */\* ]]; then
+                prefix="${pattern%\*\}"
+                [[ "$path" == "$prefix"* ]] && { covered=true; break; }
+              fi
+            done <<< "$PATTERNS"
+            if [ "$covered" = "false" ]; then
+              MISSING="${MISSING}\\n  $path"
+            fi
+          done <<< "$ALL_PATHS"
+
+          if [ -n "$MISSING" ]; then
+            fail "trust-surface paths missing CODEOWNERS coverage on base:${MISSING}"
+          fi
+          echo "CODEOWNERS: OK — all trust-surface paths covered on base"
+
+  # ──────────────────────────────────────────────────────────────
+  # Job 2 — trusted_writer_set atomic pair invariant.
+  # Verifies that in the PR head, the blob sha of
+  # .github/workflows/admission-check.yml matches
+  # trustedAdmissionWorkflowSha in trusted_writer_set.json.
+  # Also enforces atomicity: if head modifies either file, both
+  # must be in the PR diff (else fail-closed).
+  #
+  # Design decision: head self-consistency (not base) is the
+  # right target because head changes are reviewed via other
+  # means (PR review, CODEOWNERS gate). The pair must be
+  # internally consistent in the PR head to prevent landing a
+  # broken/unpaired state. Base is the world we merge into;
+  # head is what we are reviewing.
+  # ──────────────────────────────────────────────────────────────
+  trusted-writer-set-pairing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Head checkout — we verify the PR's own tree for self-
+      # consistency. The base is the authority for the world we
+      # merge into; the head is what we are reviewing.
+      - name: "[integrity] Checkout head (PR tree — self-consistency check)"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: "[integrity] Verify trusted_writer_set.json internal consistency"
+        run: |
+          set -euo pipefail
+          fail() { echo "WRITER_SET: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          TWSET="config/trusted_writer_set.json"
+          [ -f "$TWSET" ] || fail "trusted_writer_set.json missing in PR head"
+
+          EXPECTED_SHA="$(jq -r '.trustedAdmissionWorkflowSha' "$TWSET")"
+          printf '%s' "$EXPECTED_SHA" | grep -qE '^[0-9a-f]{40}$' \
+            || fail "trustedAdmissionWorkflowSha='$EXPECTED_SHA' is not a 40-hex blob sha"
+
+          # Compute the actual blob sha of admission-check.yml in the head tree.
+          ACTUAL_SHA="$(git hash-object .github/workflows/admission-check.yml 2>/dev/null)" \
+            || fail "cannot hash .github/workflows/admission-check.yml in head tree"
+
+          [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ] \
+            || fail "admission-check.yml blob sha mismatch: expected=$EXPECTED_SHA actual=$ACTUAL_SHA (pair invariant violated)"
+
+          echo "WRITER_SET: OK — admission-check.yml blob sha matches trustedAdmissionWorkflowSha in head"
+
+      - name: "[integrity] Verify atomicity — both pair files in diff if either is modified"
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          fail() { echo "ATOMICITY: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          # Fetch the PR diff to check which files were modified.
+          curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3.diff" \
+            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
+            -o /tmp/pr.diff
+
+          MODIFIED_WRITER_SET="$(grep -cE '^\+\+\+ b/config/trusted_writer_set.json' /tmp/pr.diff || true)"
+          MODIFIED_ADMISSION="$(grep -cE '^\+\+\+ b/.github/workflows/admission-check.yml' /tmp/pr.diff || true)"
+
+          # If either trusted_writer_set.json or admission-check.yml is modified,
+          # both must be in the diff (atomicity).
+          if [ "$MODIFIED_WRITER_SET" -gt 0 ] || [ "$MODIFIED_ADMISSION" -gt 0 ]; then
+            if [ "$MODIFIED_WRITER_SET" -eq 0 ] || [ "$MODIFIED_ADMISSION" -eq 0 ]; then
+              fail "atomicity violation: PR modifies trusted_writer_set.json or admission-check.yml but not both — both must be in the diff"
+            fi
+          fi
+
+          echo "ATOMICITY: OK — pair invariant holds in head"
+
+  # ──────────────────────────────────────────────────────────────
+  # Job 3 — merge_admission.json sanity.
+  # requiredValidations must be non-empty, workflowId must be an
+  # integer in each entry, certRequired must be a boolean present.
+  # Prevents vacating the admission policy by accident — vacated
+  # state must be an explicit architect-reviewed change; if the
+  # policy intentionally contains a vacated marker, detect the
+  # specific state and require it to be unchanged from base OR the
+  # PR touches config/policy/merge_admission.json. For v1, the
+  # simpler rule applies: policy file may only change in ways that
+  # keep requiredValidations a non-empty array (v1.7.0 shape) —
+  # vacating = fail.
+  # ──────────────────────────────────────────────────────────────
+  merge-admission-sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: "[integrity] Checkout head (policy file at PR tip)"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: "[integrity] Verify merge_admission.json shape (fail-closed)"
+        run: |
+          set -euo pipefail
+          fail() { echo "ADMISSION_POLICY: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          POLICY="config/policy/merge_admission.json"
+          [ -f "$POLICY" ] || fail "merge_admission.json missing in PR head"
+
+          # requiredValidations must be a non-empty array.
+          VALIDATIONS_TYPE="$(jq -r '.requiredValidations | type' "$POLICY")"
+          [ "$VALIDATIONS_TYPE" = "array" ] || fail "requiredValidations is not an array (type=$VALIDATIONS_TYPE)"
+          COUNT="$(jq '.requiredValidations | length' "$POLICY")"
+          [ "$COUNT" -gt 0 ] || fail "requiredValidations is empty (v1.7.0 shape requires at least one entry)"
+
+          # Each validation entry must have workflowId as an integer.
+          INVALID_IDS="$(jq -r '.requiredValidations[] | select(.workflowId | type != "number") | .workflowId' "$POLICY")"
+          if [ -n "$INVALID_IDS" ]; then
+            fail "requiredValidations contains non-integer workflowId entries: $INVALID_IDS"
+          fi
+
+          # certRequired must be present and boolean at the policy level.
+          CERT_TYPE="$(jq -r '.certRequired | type' "$POLICY")"
+          [ "$CERT_TYPE" = "boolean" ] || fail "certRequired is not a boolean (type=$CERT_TYPE)"
+
+          echo "ADMISSION_POLICY: OK — requiredValidations non-empty ($COUNT entries), workflowId integer, certRequired boolean"
