@@ -56,7 +56,7 @@ jobs:
       # and trust-surface paths. fetch-depth 0 so the full tree is
       # available (git hash-object needs the blob, not just the tree).
       - name: "[integrity] Checkout base (CODEOWNERS + policy authority)"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
@@ -134,7 +134,7 @@ jobs:
       # consistency. The base is the authority for the world we
       # merge into; the head is what we are reviewing.
       - name: "[integrity] Checkout head (PR tree — self-consistency check)"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -207,7 +207,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: "[integrity] Checkout head (policy file at PR tip)"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
