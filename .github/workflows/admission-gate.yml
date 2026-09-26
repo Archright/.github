@@ -36,11 +36,13 @@
 # Permissions: top-level contents: read (minimal). Job-level elevation ONLY
 # where a job's function requires it: gateway (contents: read — H-code
 # execution), tree-identity (actions: read — gateway artifact download),
-# admission (actions/pull-requests: read — mirrors the documented posture of
-# the called admission-check workflow), mint (contents: write + actions/
-# pull-requests: read — the ledger append tier). No checks: write anywhere:
-# the verdict job's native check run is created by the platform from the job
-# itself (no API posting).
+# admission (actions/pull-requests: read + checks: write — caller grant는
+# callee(admission-check.yml)의 top-level 선언과 정확히 일치해야 한다:
+# grant < callee 선언이면 호출 그래프 전체가 계획 단계에서 거부되어 0-job
+# startup_failure — 2026-09-26 첫 런 실증), mint (contents: write +
+# actions/pull-requests: read — the ledger append tier). checks: write는
+# admission-callee contract 전용이며 verdict job에는 없다 — verdict의 native
+# check run은 platform이 job 자체에서 생성한다 (no API posting).
 #
 # DAG (jobs + needs, fail-closed everywhere):
 #   1. closure-deriver — derive closure(H)/closure(B) + old-anchor sanity
@@ -214,8 +216,8 @@ jobs:
     # it must never be able to write anything from it.
     permissions:
       contents: read
-    # SHA-pinned to Axiom main d84752c08 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@d84752c08485892eb4e4d1ed8f3ae8cedbc56857
+    # SHA-pinned to Axiom main 9c9bfe5c2 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@9c9bfe5c2c1964e6e25df0ab4ee5c07c2cc4249b
     with:
       # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
       target_sha: ${{ github.sha }}
@@ -292,8 +294,14 @@ jobs:
       contents: read
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom main d84752c08 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@d84752c08485892eb4e4d1ed8f3ae8cedbc56857
+      # checks: write — CALLEE(admission-check.yml) top-level 선언과의
+      # permissions 계약: caller grant < callee 선언이면 호출 그래프 전체가
+      # 계획 단계에서 거부되어 0-job startup_failure(공식 규칙 — GITHUB_TOKEN
+      # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
+      # landing-trigger Check Run POST가 이 스코프를 사용한다.
+      checks: write
+    # SHA-pinned to Axiom main 9c9bfe5c2 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9c9bfe5c2c1964e6e25df0ab4ee5c07c2cc4249b
     # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
   # ──────────────────────────────────────────────────────────────
   # Job 5 — mint. Certificate publication to the ledger side-ref only.
@@ -314,8 +322,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom main d84752c08 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@d84752c08485892eb4e4d1ed8f3ae8cedbc56857
+    # SHA-pinned to Axiom main 9c9bfe5c2 (wiring + contracts landed; SHA-only — @branch/@tag FORBIDDEN, rotation = §7)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9c9bfe5c2c1964e6e25df0ab4ee5c07c2cc4249b
     with:
       # inputs = the landed on.workflow_call.inputs contract (all required,
       # camelCase); the callee's activation guard re-verifies every value
