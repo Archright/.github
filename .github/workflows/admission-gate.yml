@@ -72,7 +72,7 @@ jobs:
   # The checker-closure definition is EXECUTED FROM B (deriver built from
   # B's own copy of tools/ci/derive_checker_closure.nim — never from H's
   # copy; a PR that tampers the deriver proves nothing). Produces:
-  #   closure_H.txt = derived(H), closure_B.txt = derived(B)
+  #   derived-H.txt = derived(H), derived-B.txt = derived(B)
   # and enforces the OLD-ANCHOR sanity: derived(B) == pin@B where pin@B is
   # .trustedCheckerTreeClosure in config/trusted_writer_set.json AT B
   # (git show B: — the working tree is PR-influenced, so the pin is read
@@ -173,7 +173,7 @@ jobs:
             | LC_ALL=C sort > /tmp/pin_B.txt \
             || fail "config/trusted_writer_set.json@B has no trustedCheckerTreeClosure object (post-genesis the key must exist — absence = tamper/misconfig)"
 
-          cmp /tmp/closure_B.txt /tmp/pin_B.txt \
+          cmp /tmp/derived-B.txt /tmp/pin_B.txt \
             || fail "derived(B) != pin@B — B's derived closure diverges from the trusted pin at B (old anchor invalid; rotation must carry the new pin atomically)"
 
           # Members sanity = exactly the Tier C set: required members present ...
