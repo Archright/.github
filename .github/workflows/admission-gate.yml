@@ -39,20 +39,32 @@
 # admission (actions/pull-requests: read + checks: write — caller grant는
 # callee(admission-check.yml)의 top-level 선언과 정확히 일치해야 한다:
 # grant < callee 선언이면 호출 그래프 전체가 계획 단계에서 거부되어 0-job
-# startup_failure — 2026-09-26 첫 런 실증), mint (contents: write +
-# actions/pull-requests: read — the ledger append tier). checks: write는
+# startup_failure — 2026-09-26 첫 런 실증), mint-prepare (contents: read +
+# actions/pull-requests: read — callee prepare job 선언과 일치; 이 호출은
+# write를 GRANT하지 않는다), mint-publish (contents: write + actions/
+# pull-requests: read — the ONLY contents: write grant in the gate; callee
+# publish job = TrustedWriterSet의 단일 runtime write holder). checks: write는
 # admission-callee contract 전용이며 verdict job에는 없다 — verdict의 native
 # check run은 platform이 job 자체에서 생성한다 (no API posting).
 #
-# DAG (jobs + needs, fail-closed everywhere):
+# DAG (jobs + needs, fail-closed everywhere; plan rev.7 Phase 2 item 8 —
+# 2-stage mint: mint-prepare(read tier) ∥ gateway lane, mint-publish(유일
+# contents: write) = [B2] 데이터 인과 + D6/CAS 결속 후 발행):
 #   1. closure-deriver — derive closure(H)/closure(B) + old-anchor sanity
 #      (derived(B)==pin@B); H≠B mismatch는 admission의 NORMAL/ROTATION 자격
 #      판정으로 위임 (rotation 대응 — 자격 판정은 Axiom B-built code)
 #   2. gateway          — runner-pool-acceptance (reusable @SHA, H code)
 #   3. tree-identity    — testedTree (from gateway artifact) == mergeTree
 #   4. admission        — B-pinned definition → witness + NORMAL/ROTATION
-#   5. mint             — certificate to the ledger (B-pinned code, ③)
-#   6. admission-check  — verdict job (always() + needs.*.result -> FAILURE;
+#      (needs [closure-deriver] 단독 — derived-closure 소비; gateway lane과
+#      병렬, plan item 8)
+#   5. mint-prepare     — certificate-mint @SHA stage=prepare (read tier):
+#      B 자체빌드(C1) + witness 검증 + 서명 + cert artifact 업로드
+#   6. mint-publish     — certificate-mint @SHA stage=publish (write tier,
+#      THE single contents: write): [X] 5종 + [B2] (a)(b)(c) + D6 3분기 CAS +
+#      exactly-once → ledger (B-pinned code, ③) — needs
+#      [mint-prepare, gateway, tree-identity]
+#   7. admission-check  — verdict job (always() + needs.*.result -> FAILURE;
 #      skipped must never render green)
 
 name: admission-gate
@@ -216,8 +228,8 @@ jobs:
     # it must never be able to write anything from it.
     permissions:
       contents: read
-    # SHA-pinned to Axiom 2f6062ea4 (post-cutover main; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@2f6062ea4b4f6061f495ff75666b6e95d873790d
+    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
     with:
       # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
       target_sha: ${{ github.sha }}
@@ -289,7 +301,12 @@ jobs:
   # ROTATION (allowlist + atomic anchors).
   # ──────────────────────────────────────────────────────────────
   admission:
-    needs: [tree-identity]
+    # needs [closure-deriver] 단독 (plan rev.7 Phase 2 item 8 — DAG 정정):
+    # admission은 closure-deriver의 derived-closure same-run artifact만
+    # 소비한다 (tree-identity 산출물 비소비 — callee admission-check.yml이
+    # mergeTree를 스스로 유도). tree-identity/gateway 완료를 기다리지 않으므로
+    # mint-prepare가 gateway lane과 병렬로 시작된다 (벽시계 회귀 제거).
+    needs: [closure-deriver]
     permissions:
       contents: read
       actions: read
@@ -300,15 +317,55 @@ jobs:
       # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
       # landing-trigger Check Run POST가 이 스코프를 사용한다.
       checks: write
-    # SHA-pinned to Axiom 2f6062ea4 (post-cutover main; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@2f6062ea4b4f6061f495ff75666b6e95d873790d
+    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
     # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
   # ──────────────────────────────────────────────────────────────
-  # Job 5 — mint. Certificate publication to the ledger side-ref only.
+  # Job 5 — mint-prepare (2-stage stage 1 — READ tier). certificate-mint
+  # @SHA stage=prepare: B 자체빌드(write-tier 계약 예외 C1) + witness 검증 +
+  # 서명 + cert artifact 업로드(trusted-name subject-certificate-<run_attempt>,
+  # cert_sha256 manifest 기록 — [X] 2 원천). 생성 authority = write-tier
+  # 자체빌드 1개 ([B1]) — publish는 이를 소비만 한다 (소비자 재생성 0).
+  # needs [admission] (witness 소비) + GATEWAY와 병렬 (벽시계 회귀 제거 —
+  # plan rev.7 Phase 2 item 7-8). 이 호출은 contents: write를 GRANT하지
+  # 않는다 — write grant는 mint-publish 단독 (TrustedWriterSet runtime
+  # holder; callee prepare job의 contents: read 선언과 일치).
+  # ──────────────────────────────────────────────────────────────
+  mint-prepare:
+    needs: [admission]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
+    with:
+      # inputs = the landed on.workflow_call.inputs contract (6 required —
+      # stage + runId/runAttempt/headSha/baseSha/prNumber, camelCase); the
+      # callee's activation guard re-verifies every value against the
+      # actions/PR API before minting. stage='prepare' — any other value
+      # skips both callee jobs → verdict converts skipped to FAILURE ([F]).
+      stage: prepare
+      runId: ${{ github.run_id }}
+      runAttempt: ${{ github.run_attempt }}
+      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
+      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
+      prNumber: ${{ github.event.pull_request.number }}
+  # ──────────────────────────────────────────────────────────────
+  # Job 6 — mint-publish (2-stage stage 2 — WRITE tier, THE single
+  # contents: write grant in the gate). certificate-mint @SHA
+  # stage=publish: [X] 5종 (artifact identity · file digest · field
+  # binding · Ed25519+closure · CAS 원자성) + [B2] (a) run.headSha ==
+  # cert.headSha · (b) testedTreeDigest == tree(github.sha) == cert.certTree
+  # (동일 semantic domain — canonical merge-tree SHA, Agent-A 확정) · (c)
+  # gateway lane conclusion==success (jobs API) + D6 3분기 reconciliation +
+  # exactly-once → ledger-append (refs/heads/axiom/certificates 한정).
+  # publish는 same-run artifact를 스스로 fetch 하므로 (tested-tree-digest
+  # 포함 — [B2] (b)) needs = ordering + artifact 존재 보장.
   #
   # ③ write-boundary contract (plan Phase 0-③, TrustedWriterSet meaning):
-  #   mint job = B-pinned code만 실행 (definition @SHA + verifier built
-  #     from B inside the called workflow)
+  #   mint-publish = B-pinned code만 실행 (definition @SHA + verifier는
+  #     prepare가 업로드한 B-built bin/ax — 소비자 재생성 0)
   #   + H는 data-only input (headSha 등 — H 코드는 mint에서 실행/빌드 금지)
   #   + write destination = ledger (refs/heads/axiom/certificates) 한정
   #   + main 직접 mutation = 불가 (main 변경 = GitHub native MERGE 하나뿐 —
@@ -316,25 +373,23 @@ jobs:
   #     "ledger only"는 계약이며 보장은 (a) B-pinned code + architect
   #     review, (b) H data-only, (c) M-B 결속이다.
   # ──────────────────────────────────────────────────────────────
-  mint:
-    needs: [admission]
+  mint-publish:
+    needs: [mint-prepare, gateway, tree-identity]
     permissions:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom 2f6062ea4 (post-cutover main; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@2f6062ea4b4f6061f495ff75666b6e95d873790d
+    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
     with:
-      # inputs = the landed on.workflow_call.inputs contract (all required,
-      # camelCase); the callee's activation guard re-verifies every value
-      # against the actions/PR API before minting.
+      stage: publish
       runId: ${{ github.run_id }}
       runAttempt: ${{ github.run_attempt }}
       headSha: ${{ github.event.pull_request.head.sha || github.sha }}
       baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
       prNumber: ${{ github.event.pull_request.number }}
   # ──────────────────────────────────────────────────────────────
-  # Job 6 — verdict. REQUIRED STATUS CONTEXT: the check run for THIS job
+  # Job 7 — verdict. REQUIRED STATUS CONTEXT: the check run for THIS job
   # is named after the job (Actions check-run name = job name), so the job
   # id AND name are `admission-check` — the single context the main
   # ruleset's required_status_checks == ["admission-check"] binds to.
@@ -347,7 +402,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [closure-deriver, gateway, tree-identity, admission, mint]
+    needs: [closure-deriver, gateway, tree-identity, admission, mint-publish]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -358,7 +413,7 @@ jobs:
           RESULT_GATEWAY: ${{ needs.gateway.result }}
           RESULT_TREE_IDENTITY: ${{ needs.tree-identity.result }}
           RESULT_ADMISSION: ${{ needs.admission.result }}
-          RESULT_MINT: ${{ needs.mint.result }}
+          RESULT_MINT_PUBLISH: ${{ needs.mint-publish.result }}
         run: |
           set -euo pipefail
           fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
@@ -367,7 +422,7 @@ jobs:
               "gateway:$RESULT_GATEWAY" \
               "tree-identity:$RESULT_TREE_IDENTITY" \
               "admission:$RESULT_ADMISSION" \
-              "mint:$RESULT_MINT"; do
+              "mint-publish:$RESULT_MINT_PUBLISH"; do
             JOB="${pair%%:*}"; RESULT="${pair#*:}"
             [ "$RESULT" = "success" ] \
               || fail "needed job '$JOB' result='$RESULT' (expected 'success' — skipped/cancelled/failed must block, never green)"
@@ -385,8 +440,9 @@ jobs:
 
       # Admission predicate (certificate ∈ predicate — ②): identity
       # outputs match + qualification ∈ {NORMAL, ROTATION} + certificate
-      # issued & verified == mint job success (mint's own gates: witness
-      # provenance re-verification, D6, FF-CAS ledger-append — a red mint
+      # issued & verified == mint-publish job success (mint-publish's own
+      # gates: witness provenance re-verification, [X] 5종, [B2] (a)(b)(c),
+      # D6, FF-CAS 3분기 + exactly-once ledger-append — a red mint-publish
       # never reaches here green). GREEN only when every element holds
       # (all evidence complete pre-landing).
       # TODO(PHASE-4 identity PR): certTree==mergeTree ledger audit joins
@@ -414,6 +470,7 @@ jobs:
             NORMAL|ROTATION) ;;
             *) fail "qualification '$QUALIFICATION' — expected NORMAL or ROTATION" ;;
           esac
-          # certificate issued & verified: mint job success is asserted in
-          # step 1; mint's internal gates are the certificate verification.
-          echo "ADMISSION_GATE: GREEN — identity ✓ qualification=$QUALIFICATION ✓ certificate issued (mint green) ✓ (all pre-landing evidence satisfied)"
+          # certificate issued & verified: mint-publish job success is
+          # asserted in step 1; mint-publish's internal gates are the
+          # certificate verification.
+          echo "ADMISSION_GATE: GREEN — identity ✓ qualification=$QUALIFICATION ✓ certificate issued (mint-publish green) ✓ (all pre-landing evidence satisfied)"
