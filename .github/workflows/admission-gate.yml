@@ -39,17 +39,20 @@
 # admission (actions/pull-requests: read + checks: write — caller grant는
 # callee(admission-check.yml)의 top-level 선언과 정확히 일치해야 한다:
 # grant < callee 선언이면 호출 그래프 전체가 계획 단계에서 거부되어 0-job
-# startup_failure — 2026-09-26 첫 런 실증), mint-prepare (contents: read +
-# actions/pull-requests: read — callee prepare job 선언과 일치; 이 호출은
-# write를 GRANT하지 않는다), mint-publish (contents: write + actions/
-# pull-requests: read — the ONLY contents: write grant in the gate; callee
-# publish job = TrustedWriterSet의 단일 runtime write holder). checks: write는
+# startup_failure — 2026-09-26 첫 런 실증), mint-prepare (contents: write +
+# actions/pull-requests: read — plan-level grant는 callee TOP-LEVEL 선언
+# (write, TrustedWriterSet scan anchor)과 일치 필수; callee job-level
+# downshift가 runtime read 보장), mint-publish (contents: write + actions/
+# pull-requests: read — the ONLY plan-level contents: write holder that
+# EXECUTES write; callee publish job = TrustedWriterSet의 runtime write
+# holder). checks: write는
 # admission-callee contract 전용이며 verdict job에는 없다 — verdict의 native
 # check run은 platform이 job 자체에서 생성한다 (no API posting).
 #
 # DAG (jobs + needs, fail-closed everywhere; plan rev.7 Phase 2 item 8 —
-# 2-stage mint: mint-prepare(read tier) ∥ gateway lane, mint-publish(유일
-# contents: write) = [B2] 데이터 인과 + D6/CAS 결속 후 발행):
+# 2-stage mint: mint-prepare(read tier — runtime contents: read via callee
+# job-level downshift) ∥ gateway lane, mint-publish(runtime 단일 write
+# holder) = [B2] 데이터 인과 + D6/CAS 결속 후 발행):
 #   1. closure-deriver — derive closure(H)/closure(B) + old-anchor sanity
 #      (derived(B)==pin@B); H≠B mismatch는 admission의 NORMAL/ROTATION 자격
 #      판정으로 위임 (rotation 대응 — 자격 판정은 Axiom B-built code)
@@ -327,14 +330,19 @@ jobs:
   # cert_sha256 manifest 기록 — [X] 2 원천). 생성 authority = write-tier
   # 자체빌드 1개 ([B1]) — publish는 이를 소비만 한다 (소비자 재생성 0).
   # needs [admission] (witness 소비) + GATEWAY와 병렬 (벽시계 회귀 제거 —
-  # plan rev.7 Phase 2 item 7-8). 이 호출은 contents: write를 GRANT하지
-  # 않는다 — write grant는 mint-publish 단독 (TrustedWriterSet runtime
-  # holder; callee prepare job의 contents: read 선언과 일치).
+  # plan rev.7 Phase 2 item 7-8). plan-level grant = content: write (callee
+  # top-level 선언과의 plan-time 계약 — 2026-09-26 실증); RUNTIME token은
+  # callee prepare job-level downshift(contents: read)로 read 한정.
   # ──────────────────────────────────────────────────────────────
   mint-prepare:
     needs: [admission]
     permissions:
-      contents: read
+      # NOTE — plan-level grant = callee TOP-LEVEL 선언과 일치해야 함 (2026-09-26
+      # 실증: caller grant < callee top-level 선언 → 호출 그래프 전체 0-job
+      # startup_failure). certificate-mint.yml top-level = contents: write
+      # (TrustedWriterSet scan anchor). RUNTIME write holder는 callee의
+      # job-level downshift(prepare = contents: read)가 보장 — publish 단독.
+      contents: write
       actions: read
       pull-requests: read
     # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
