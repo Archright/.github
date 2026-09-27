@@ -231,8 +231,8 @@ jobs:
     # it must never be able to write anything from it.
     permissions:
       contents: read
-    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
+    # SHA-pinned to Axiom 55de14be3 (fix/mint-prepare-staging — B2 스테이징 결함 수정; chicken-egg unmerged 재핀, PR #300 머지 후 main 조상)
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@55de14be3bc476636c4b61881068caf39be5b460
     with:
       # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
       target_sha: ${{ github.sha }}
@@ -320,8 +320,8 @@ jobs:
       # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
       # landing-trigger Check Run POST가 이 스코프를 사용한다.
       checks: write
-    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
+    # SHA-pinned to Axiom 55de14be3 (fix/mint-prepare-staging — B2 스테이징 결함 수정; chicken-egg unmerged 재핀, PR #300 머지 후 main 조상)
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@55de14be3bc476636c4b61881068caf39be5b460
     # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
   # ──────────────────────────────────────────────────────────────
   # Job 5 — mint-prepare (2-stage stage 1 — READ tier). certificate-mint
@@ -345,8 +345,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
+    # SHA-pinned to Axiom 55de14be3 (fix/mint-prepare-staging — B2 스테이징 결함 수정; chicken-egg unmerged 재핀, PR #300 머지 후 main 조상)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@55de14be3bc476636c4b61881068caf39be5b460
     with:
       # inputs = the landed on.workflow_call.inputs contract (6 required —
       # stage + runId/runAttempt/headSha/baseSha/prNumber, camelCase); the
@@ -387,8 +387,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom b9bebfe14 (2-stage mint — plan rev.7 Phase 2 item 7-8; callee 트리거 workflow_call 단일)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b9bebfe1491cc2322df8548e21e0f3058dc9d9c0
+    # SHA-pinned to Axiom 55de14be3 (fix/mint-prepare-staging — B2 스테이징 결함 수정; chicken-egg unmerged 재핀, PR #300 머지 후 main 조상)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@55de14be3bc476636c4b61881068caf39be5b460
     with:
       stage: publish
       runId: ${{ github.run_id }}
