@@ -231,8 +231,8 @@ jobs:
     # it must never be able to write anything from it.
     permissions:
       contents: read
-    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
+    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@b979171cab9826435def316540987dc934d50c0d
     with:
       # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
       target_sha: ${{ github.sha }}
@@ -320,8 +320,8 @@ jobs:
       # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
       # landing-trigger Check Run POST가 이 스코프를 사용한다.
       checks: write
-    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
+    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@b979171cab9826435def316540987dc934d50c0d
     # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
   # ──────────────────────────────────────────────────────────────
   # Job 5 — mint-prepare (2-stage stage 1 — READ tier). certificate-mint
@@ -345,8 +345,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
+    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b979171cab9826435def316540987dc934d50c0d
     with:
       # inputs = the landed on.workflow_call.inputs contract (6 required —
       # stage + runId/runAttempt/headSha/baseSha/prNumber, camelCase); the
@@ -387,8 +387,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
+    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b979171cab9826435def316540987dc934d50c0d
     with:
       stage: publish
       runId: ${{ github.run_id }}
