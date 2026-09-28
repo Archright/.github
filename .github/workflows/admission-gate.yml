@@ -231,8 +231,8 @@ jobs:
     # it must never be able to write anything from it.
     permissions:
       contents: read
-    # SHA-pinned to Axiom 68f6a922f86f9697d4d3f908eb0f513cffa1dd50 (main tip — I-chain 복구: blob(admission-check.yml) == TWS 4ddbe20a)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@68f6a922f86f9697d4d3f908eb0f513cffa1dd50
+    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
     with:
       # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
       target_sha: ${{ github.sha }}
@@ -320,8 +320,8 @@ jobs:
       # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
       # landing-trigger Check Run POST가 이 스코프를 사용한다.
       checks: write
-    # SHA-pinned to Axiom 68f6a922f86f9697d4d3f908eb0f513cffa1dd50 (main tip — I-chain 복구: blob(admission-check.yml) == TWS 4ddbe20a)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@68f6a922f86f9697d4d3f908eb0f513cffa1dd50
+    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
     # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
   # ──────────────────────────────────────────────────────────────
   # Job 5 — mint-prepare (2-stage stage 1 — READ tier). certificate-mint
@@ -345,8 +345,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom 68f6a922f86f9697d4d3f908eb0f513cffa1dd50 (main tip — I-chain 복구: blob(admission-check.yml) == TWS 4ddbe20a)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@68f6a922f86f9697d4d3f908eb0f513cffa1dd50
+    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
     with:
       # inputs = the landed on.workflow_call.inputs contract (6 required —
       # stage + runId/runAttempt/headSha/baseSha/prNumber, camelCase); the
@@ -387,8 +387,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    # SHA-pinned to Axiom 68f6a922f86f9697d4d3f908eb0f513cffa1dd50 (main tip — I-chain 복구: blob(admission-check.yml) == TWS 4ddbe20a)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@68f6a922f86f9697d4d3f908eb0f513cffa1dd50
+    # SHA-pinned to Axiom e1ea0daeb19be8340e3b78dffee80454aa7c43d4 (main tip — Epoch N+1 cutover: verdict interleave 수정 + blob(admission-check.yml) == TWS 5662e2b6e)
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@e1ea0daeb19be8340e3b78dffee80454aa7c43d4
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -470,8 +470,24 @@ jobs:
           # admission-verdict.log = stderr log lines + ONE stdout JSON line
           # (agent-54 contract: stdout carries exactly {"prNumber":...}) —
           # extract the JSON line first, then parse qualification from it.
+          # Epoch N+1 hardening (실측 #303, gate verdict 4연속 실패,
+          # 2026-09-28): 옛 producer는 stdout 8192B flush 경계에 stderr
+          # [INFO] 라인이 끼어들어 >8KB JSON이 중간에서 분할됐고(reproduced
+          # artifact: offset 8192 삽입), 라인 기반 grep은 첫 조각(8303B,
+          # 중간 문자열)만 추출해 jq가 "Unfinished string at EOF at line 1,
+          # column 8303"으로 죽었다. cutover 후 새 producer(분리 수집)는
+          # 완전 단일 라인 JSON을 쓰므로 아래 검증은 방어선: 끝 `}` 확인
+          # (분할/절단 즉시 탐지) + prNumber 스키마 일치 + 명시적 실패
+          # 메시지(원시 jq 에러 노출 금지).
           JSON_LINE="$(grep -o '{"prNumber":[0-9]*,.*' admission-artifact/admission-verdict.log | tail -n 1 || true)"
           [ -n "$JSON_LINE" ] || fail "qualification JSON line not found in admission-verdict.log (evidence integrity)"
+          case "$JSON_LINE" in
+            *'}' ) ;;
+            *) fail "verdict JSON line incomplete (${#JSON_LINE} bytes, trailing '}' missing — interleaved stdout/stderr or line truncation; evidence integrity)" ;;
+          esac
+          JSON_PRNUMBER="$(printf '%s' "$JSON_LINE" | jq -r '.prNumber // -1' || true)"
+          [ "$JSON_PRNUMBER" = "${{ github.event.pull_request.number }}" ] \
+            || fail "verdict JSON prNumber '$JSON_PRNUMBER' != PR #${{ github.event.pull_request.number }} (wrong/malformed artifact — evidence integrity)"
           QUALIFICATION="$(printf '%s' "$JSON_LINE" | jq -r '.qualification // empty' || true)"
           [ -n "$QUALIFICATION" ] || fail "qualification field missing/unparseable in JSON line (evidence integrity)"
           case "$QUALIFICATION" in
