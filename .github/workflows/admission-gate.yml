@@ -1,27 +1,42 @@
 # ────────────────────────────────────────────────────────────────
-# admission-gate — Bootstrap Bridge (정정 11, A안).
+# admission-gate — Control Kernel (K). N+1 activation
+# (CI Quantization prefix construction — Bootstrap Authority 창의 ③,
+# 새 I-chain 형성).
 #
-# 일회성 부트로더(one-shot bootstrap verifier). S0 merge authority 교체:
-# 기존 old CI DAG(closure-deriver / gateway / tree-identity / admission /
-# mint-prepare / mint-publish) 20분 게이트를 최소 Bootstrap Verifier로
-# 대체한다. N+1 activation 시 실제 admission-gate로 대체 예정.
-# required check context = admission-check (JOB NAME) 불변이 이 파일의
-# 존재 조건. org ruleset 24041674(axiom-admission-gate)의 workflows 규칙이
-# 이 파일을 sha pin하며, Axiom repo ruleset 20303214의
+# K = "GitHub가 이 epoch을 실행하게 하는 최소 제어 장치" (핸들만 —
+# semantic 엔진 코드 잔존 금지). semantic 실행 범위는 callee
+# (admission-check.yml@B) 내부의 Slice Engine 게이트가 운전한다:
+# manifest(config/policy/epoch_manifest.json @B) implementedSlices==
+# [SL-08]에서 scope_sl08 단계만 발화하고, 미정착 slice(SL-01/02/03/05/
+# 0713) 단계는 실행 목록에서 제외되어 NO-FIRE (I-3 — skip이 아니라
+# 미발화). verdict는 callee result 단일 판정 — callee 내부의 fail-closed
+# manifest 파싱 + SL-08 검증(build_sha==B + per-file sha 대조)이
+# N+1의 semantics다.
+#
+# required check context = admission-check (JOB NAME) 불변 — 이 파일의
+# 존재 조건. org ruleset 24041674(axiom-admission-gate)의 workflows
+# 규칙이 이 파일을 sha pin하며, Axiom repo ruleset 20303214의
 # required_status_checks == ["admission-check"]가 verdict를 소비한다.
-# required check 이름·bypass_actors·enforcement는 전부 불변.
+# required check 이름·bypass_actors·enforcement 공백은 전부 불변.
 #
-# 판정 (전부 fail-closed):
-#   1. 변경 파일 집합 ⊆ bootstrap allowlist (bootstrap-verifier job 상수)
-#   2. 위험 변경 차단: AGENTS.md / config/policy/merge_admission.json /
-#      allowlist 외 .github/workflows/* / config/repository_surface.json의
-#      bypass·enforcement 필드 조작 시도
-#   3. trust-surface 결속: config/trusted_writer_set.json 변경 →
-#      같은 PR의 .github/workflows/admission-check.yml 변경 필수
-#      (TWS 원자 페어)
-#   4. files API 실패·페이지네이션 실패·merge_group 이벤트 = fail-closed
+# 구 엔진(5-job DAG: closure-deriver / gateway / tree-identity /
+# admission / mint-prepare / mint-publish — 마지막 상태 freeze tag
+# 94a6f0864, old-ci-freeze-20260928)에서 K가 제거한 것 (I-3 미정착
+# slice — 무엇이 빠지는지 대조용 참조만, 복사 아님):
+#   closure-deriver — SL-02 deriver 컴파일·실행 + closure 등식
+#                     (callee 내부 derived-closure load도 scope_sl02
+#                      게이트로 NO-FIRE)
+#   gateway         — runner-pool-acceptance H-code 전면 실행
+#   tree-identity   — testedTree==mergeTree 등식 (callee가 mergeTree
+#                     재유도 = 순수 중복)
+#   mint-prepare    — certificate-mint prepare (SL-0713 미정착)
+#   mint-publish    — certificate-mint publish (SL-0713 미정착)
+# verdict 다단계(identity+qualification+certificate predicate)도 축소 —
+# K verdict = callee result 단일 판정 (fail-closed, "never green").
 #
-# bootstrap allowlist = S0 산출물, N+1에서 폐기.
+# Bootstrap Bridge(org PR #16, a7668c898)는 R0 선언 시점에 조기 퇴역 —
+# 본 파일이 그 자리에 새 I-chain을 처음 형성한다 (B10 창의 ③,
+# I-12 1회성).
 # ────────────────────────────────────────────────────────────────
 name: admission-gate
 
@@ -36,199 +51,47 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # bootstrap-verifier — 유일한 실무 job.
-  # pull_request 이벤트의 files API로 변경 파일 집합을 얻어 bootstrap
-  # allowlist와 대조한다. 파일 1개라도 allowlist 밖이면 FAIL.
+  # admission — callee 래퍼 (구 DAG의 admission 래퍼 패턴 재사용).
+  # B-pinned definition: workflow_call: {} — callee가 전파된
+  # pull_request caller context에서 B/H/PR 사실을 전부 유도한다
+  # (inputs/secrets 없음 — 전달 없음). 실행 job은 callee 내부에 있으며
+  # slice-engine 게이트로 범위 제한된다.
+  # job-level permissions = callee(admission-check.yml) top-level 선언과
+  # 정확히 일치 (grant < callee 선언이면 호출 그래프 전체가 계획 단계에서
+  # 거부되어 0-job startup_failure — 2026-09-26 첫 런 실증). callee의
+  # landing-trigger Check Run POST가 checks: write를 사용한다.
   # ──────────────────────────────────────────────────────────────
-  bootstrap-verifier:
-    name: bootstrap-verifier
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+  admission:
     permissions:
       contents: read
+      actions: read
       pull-requests: read
-    env:
-      REPO: ${{ github.repository }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    steps:
-      - name: "[bootstrap] 분류·결속·위험 차단 판정 (files API, fail-closed)"
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |-
-          set -euo pipefail
-
-          fail() {
-            echo "[bootstrap-verifier] verdict: FAIL (fail-closed) — $1"
-            echo "::error::[bootstrap-verifier] FAIL — $1 (fail-closed)"
-            exit 1
-          }
-
-          # ── bootstrap allowlist = S0 산출물, N+1에서 폐기 ──────────
-          # S0-a (A-cache), S0-c (epoch gate), S0-d (callee gate),
-          # S0-e (SL-08 binding), 정책 v24/v25, 게이트 배선.
-          ALLOWLIST=(
-            ".github/workflows/admission-check.yml"
-            ".github/workflows/certificate-mint.yml"
-            ".github/workflows/runner-pool-acceptance.yml"
-            "config/trusted_writer_set.json"
-            "config/executor_authority.json"
-            "config/repository_surface.json"
-            "config/policy/epoch_manifest.json"
-            "src/gate/slice_catalog.nim"
-            "src/core/trusted/layer_rules.nim"
-            "tools/ci/epoch_transaction_gate.nim"
-            "tools/ci/verify_b_artifact.sh"
-            "tests/ci/test_verify_b_artifact.nim"
-            ".github/actions/setup-axiom-toolchain/action.yml"
-            "Makefile"
-            ".githooks/pre-push"
-            ".github/workflows/admission-gate.yml"
-          )
-
-          if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
-            fail "merge_group 이벤트 — bootstrap verifier 미지원 (merge queue 비사용, forward-compat fail-closed)"
-          fi
-          [ -n "${PR_NUMBER:-}" ] || fail "PR 번호 없음 (pull_request 이벤트 아님)"
-          printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "base.sha '$BASE_SHA' 비정상 (40-hex 아님)"
-          printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "head.sha '$HEAD_SHA' 비정상 (40-hex 아님)"
-
-          # ── 변경 파일 집합: files API (per_page=100, 페이지네이션) ──
-          # API 실패/페이지네이션 실패 = fail-closed (축소 판정 금지).
-          FILES=()
-          SURFACE_DIFF_BODY=""
-          PAGE=0
-          while :; do
-            PAGE=$((PAGE + 1))
-            [ "$PAGE" -le 40 ] || fail "파일 페이지 40개 초과 (변경 파일 >= 3901 — 과다, fail-closed)"
-            RESP=$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100&page=${PAGE}") \
-              || fail "files API page ${PAGE} 조회 실패 (HTTP error)"
-            printf '%s' "$RESP" | jq -e 'type == "array"' >/dev/null || fail "files API page ${PAGE} 응답 비정상"
-            N=$(printf '%s' "$RESP" | jq 'length')
-            if [ "$N" -eq 0 ]; then
-              break
-            fi
-            LIST=$(printf '%s' "$RESP" | jq -r '.[].filename') || fail "files API page ${PAGE} 파일명 파싱 실패"
-            while IFS= read -r fname; do
-              [ -n "$fname" ] && FILES+=("$fname")
-            done <<< "$LIST"
-            PATCH_BODY=$(printf '%s' "$RESP" | jq -r '.[] | select(.filename == "config/repository_surface.json") | .patch // empty')
-            if [ -n "$PATCH_BODY" ]; then
-              SURFACE_DIFF_BODY="$PATCH_BODY"
-            fi
-          done
-
-          echo "[bootstrap-verifier] PR #${PR_NUMBER} — changed files: ${#FILES[@]}"
-          for f in "${FILES[@]}"; do
-            echo "[bootstrap-verifier]   changed: ${f}"
-          done
-
-          # ── 1) 허용 범위 판정: 전부 allowlist 내 / 위험 변경 차단 ──
-          declare -A SEEN
-          OFFENDING=()
-          GATE_BYPASS=()
-          for f in "${FILES[@]}"; do
-            if [ -n "${SEEN[$f]:-}" ]; then
-              continue
-            fi
-            SEEN[$f]=1
-            allowed=0
-            for a in "${ALLOWLIST[@]}"; do
-              if [ "$f" = "$a" ]; then
-                allowed=1
-                break
-              fi
-            done
-            if [ "$allowed" -eq 1 ]; then
-              echo "[bootstrap-verifier] allowed: ${f}"
-              continue
-            fi
-            case "$f" in
-              AGENTS.md)
-                echo "::error::[bootstrap-verifier] blocked: AGENTS.md (헌법 문서 — bootstrap 단계 수정 금지)"
-                GATE_BYPASS+=("AGENTS.md")
-                ;;
-              config/policy/merge_admission.json)
-                echo "::error::[bootstrap-verifier] blocked: config/policy/merge_admission.json (merge admission 정책 조작 시도)"
-                GATE_BYPASS+=("config/policy/merge_admission.json")
-                ;;
-              .github/workflows/*)
-                echo "::error::[bootstrap-verifier] blocked: ${f} (allowlist 외 workflow 변경 = 게이트 우회 시도)"
-                GATE_BYPASS+=("${f}")
-                ;;
-              *)
-                OFFENDING+=("${f}")
-                ;;
-            esac
-          done
-
-          # ── 3) trust-surface 결속: TWS 원자 페어 ──
-          TWS_BROKEN=""
-          if [ -n "${SEEN[config/trusted_writer_set.json]:-}" ] && [ -z "${SEEN[.github/workflows/admission-check.yml]:-}" ]; then
-            echo "::error::[bootstrap-verifier] blocked: config/trusted_writer_set.json 변경 시 같은 PR의 .github/workflows/admission-check.yml 변경 필수 (TWS 원자 페어)"
-            TWS_BROKEN=1
-          fi
-
-          # ── 2) config/repository_surface.json bypass/enforcement 조작 차단 ──
-          SURFACE_TAMPER=""
-          if [ -n "${SEEN[config/repository_surface.json]:-}" ]; then
-            if [ -z "${SURFACE_DIFF_BODY:-}" ]; then
-              echo "[bootstrap-verifier] repository_surface.json patch 미제공(대형 diff) — raw(base/head) 비교 fallback"
-              BASE_RAW=$(curl -fsSL \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github.raw" \
-                "https://api.github.com/repos/${REPO}/contents/config/repository_surface.json?ref=${BASE_SHA}") \
-                || fail "repository_surface.json raw(base) 조회 실패"
-              HEAD_RAW=$(curl -fsSL \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github.raw" \
-                "https://api.github.com/repos/${REPO}/contents/config/repository_surface.json?ref=${HEAD_SHA}") \
-                || fail "repository_surface.json raw(head) 조회 실패"
-              SURFACE_DIFF_BODY=$(diff -u <(printf '%s\n' "$BASE_RAW") <(printf '%s\n' "$HEAD_RAW") || true)
-            fi
-            if printf '%s' "$SURFACE_DIFF_BODY" | grep -E '^\+[^+]' | grep -qiE 'bypass|enforcement'; then
-              echo "::error::[bootstrap-verifier] blocked: config/repository_surface.json의 bypass/enforcement류 필드 조작 시도"
-              SURFACE_TAMPER=1
-            fi
-          fi
-
-          # ── 최종 판정 (fail-closed) ──
-          if [ ${#OFFENDING[@]} -gt 0 ] || [ ${#GATE_BYPASS[@]} -gt 0 ] || [ -n "${TWS_BROKEN:-}" ] || [ -n "${SURFACE_TAMPER:-}" ]; then
-            [ ${#OFFENDING[@]} -eq 0 ] || echo "::error::[bootstrap-verifier] allowlist 밖 변경: ${OFFENDING[*]}"
-            [ ${#GATE_BYPASS[@]} -eq 0 ] || echo "::error::[bootstrap-verifier] 위험 변경 차단: ${GATE_BYPASS[*]}"
-            [ -z "${TWS_BROKEN:-}" ] || echo "::error::[bootstrap-verifier] trust-surface 결속 위반 (TWS 원자 페어)"
-            [ -z "${SURFACE_TAMPER:-}" ] || echo "::error::[bootstrap-verifier] repository_surface bypass/enforcement 조작"
-            fail "bootstrap 범위 밖 변경 ${#OFFENDING[@]}건 / 위험 변경 ${#GATE_BYPASS[@]}건"
-          fi
-
-          echo "[bootstrap-verifier] PR #${PR_NUMBER} 분류: bootstrap 허용 범위 — 변경 파일 ${#SEEN[@]}종 전부 allowlist 내"
-          echo "[bootstrap-verifier] verdict: PASS"
+      checks: write
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@3573ea93ef5882d83d16febbf33e57fea6b22e1d
 
   # ──────────────────────────────────────────────────────────────
-  # admission-check — verdict job. name (JOB NAME) = required check
-  # context (ruleset 20303214 required_status_checks) — 절대 불변.
-  # bootstrap-verifier 결과가 success일 때만 PASS, 그 외 fail-closed.
+  # admission-check — verdict. name = required check context
+  # (repo ruleset 20303214 required_status_checks == ["admission-check"]),
+  # 절대 불변.
+  # callee result 단일 판정: success만 GREEN, 그 외(skipped/cancelled/
+  # failed)는 exit 1 fail-closed "never green" — 구 verdict 1단계 패턴
+  # 재사용 (나머지 다단계 predicate는 미정착 slice 소관으로 제거).
+  # merge_group 이벤트는 pull_request 필드를 지니지 않아 callee가
+  # fail-closed → verdict도 FAIL (구 엔진과 동일한 설계).
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [bootstrap-verifier]
-    if: always()
+    needs: [admission]
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: "admission verdict (bootstrap-verifier result, fail-closed)"
-        shell: bash
-        run: |-
-          result="${{ needs.bootstrap-verifier.result }}"
-          echo "[admission-check] bootstrap-verifier result: ${result}"
-          if [ "${result}" != "success" ]; then
-            echo "[admission-check] verdict: FAILURE (fail-closed)"
-            exit 1
-          fi
-          echo "[admission-check] verdict: PASS (bootstrap verifier)"
+      - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
+        env:
+          RESULT_ADMISSION: ${{ needs.admission.result }}
+        run: |
+          set -euo pipefail
+          fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
+          [ "$RESULT_ADMISSION" = "success" ] \
+            || fail "needed job 'admission' result='$RESULT_ADMISSION' (expected 'success' — skipped/cancelled/failed must block, never green)"
+          echo "[verdict] OK — admission callee succeeded"
