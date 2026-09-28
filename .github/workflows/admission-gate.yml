@@ -1,75 +1,28 @@
-# admission-gate — platform orchestrator producing the single admission
-# verdict for Archright/Axiom PRs. Enforced via an org-level `workflows`
-# ruleset (source repo Archright/.github supplies the definition; target
-# repo PRs cannot remove it — the same trust model as landing-integrity).
-# Runs on every PR against the merge base.
+# ────────────────────────────────────────────────────────────────
+# admission-gate — Bootstrap Bridge (정정 11, A안).
 #
-# Enforcement + TCB split (plan hellcat-iceman-havok, Core Invariant):
-#   - GITHUB PLATFORM = orchestration identity + freshness. The org
-#     `workflows` ruleset pins this file with repository_id 1182157951 and
-#     the `sha` field (exact 40-hex after landing; mutable refs forbidden).
-#     On Axiom's main ruleset, required_status_checks == ["admission-check"]
-#     (this file's verdict job — the check-run context is the JOB NAME) +
-#     strict_required_status_checks_policy: true. Those are TWO platform
-#     controls over ONE admission execution: execution authority (what runs
-#     is fixed by platform SHA) and freshness authority (a stale candidate
-#     against a moved base is blocked by strict) — NOT redundant tests. CI
-#     runs exactly once per head.
-#   - AXIOM (reusable @SHA) = gateway execution (H code, read-only) +
-#     closure derivation (B-executed deriver) + evidence/certificate
-#     (B-pinned, ledger-only) + NORMAL/ROTATION qualification.
-#   - The certificate that mint produces is EVIDENCE — an element of the
-#     admission predicate — NOT an authority. Merge authority = GitHub
-#     ruleset + native MERGE only (single main mutator).
-#   - ③ write-boundary contract: mint runs B-pinned code only, consumes H
-#     as data-only inputs, writes to the ledger side-ref only, and cannot
-#     mutate main directly (main change = GitHub native MERGE only).
+# 일회성 부트로더(one-shot bootstrap verifier). S0 merge authority 교체:
+# 기존 old CI DAG(closure-deriver / gateway / tree-identity / admission /
+# mint-prepare / mint-publish) 20분 게이트를 최소 Bootstrap Verifier로
+# 대체한다. N+1 activation 시 실제 admission-gate로 대체 예정.
+# required check context = admission-check (JOB NAME) 불변이 이 파일의
+# 존재 조건. org ruleset 24041674(axiom-admission-gate)의 workflows 규칙이
+# 이 파일을 sha pin하며, Axiom repo ruleset 20303214의
+# required_status_checks == ["admission-check"]가 verdict를 소비한다.
+# required check 이름·bypass_actors·enforcement는 전부 불변.
 #
-# Trigger: pull_request (runs in the target repo with base/head available;
-# github.sha = the merge ref = the exact landing-candidate tree). merge_group
-# with types [checks_requested] included for merge-queue environments (not
-# currently used by Axiom; kept for forward-compatibility — same stance as
-# landing-integrity; note: merge_group events carry no pull_request fields,
-# so every base/head input below fail-closes by design until a merge-group
-# binding is added).
+# 판정 (전부 fail-closed):
+#   1. 변경 파일 집합 ⊆ bootstrap allowlist (bootstrap-verifier job 상수)
+#   2. 위험 변경 차단: AGENTS.md / config/policy/merge_admission.json /
+#      allowlist 외 .github/workflows/* / config/repository_surface.json의
+#      bypass·enforcement 필드 조작 시도
+#   3. trust-surface 결속: config/trusted_writer_set.json 변경 →
+#      같은 PR의 .github/workflows/admission-check.yml 변경 필수
+#      (TWS 원자 페어)
+#   4. files API 실패·페이지네이션 실패·merge_group 이벤트 = fail-closed
 #
-# Permissions: top-level contents: read (minimal). Job-level elevation ONLY
-# where a job's function requires it: gateway (contents: read — H-code
-# execution), tree-identity (actions: read — gateway artifact download),
-# admission (actions/pull-requests: read + checks: write — caller grant는
-# callee(admission-check.yml)의 top-level 선언과 정확히 일치해야 한다:
-# grant < callee 선언이면 호출 그래프 전체가 계획 단계에서 거부되어 0-job
-# startup_failure — 2026-09-26 첫 런 실증), mint-prepare (contents: write +
-# actions/pull-requests: read — plan-level grant는 callee TOP-LEVEL 선언
-# (write, TrustedWriterSet scan anchor)과 일치 필수; callee job-level
-# downshift가 runtime read 보장), mint-publish (contents: write + actions/
-# pull-requests: read — the ONLY plan-level contents: write holder that
-# EXECUTES write; callee publish job = TrustedWriterSet의 runtime write
-# holder). checks: write는
-# admission-callee contract 전용이며 verdict job에는 없다 — verdict의 native
-# check run은 platform이 job 자체에서 생성한다 (no API posting).
-#
-# DAG (jobs + needs, fail-closed everywhere; plan rev.7 Phase 2 item 8 —
-# 2-stage mint: mint-prepare(read tier — runtime contents: read via callee
-# job-level downshift) ∥ gateway lane, mint-publish(runtime 단일 write
-# holder) = [B2] 데이터 인과 + D6/CAS 결속 후 발행):
-#   1. closure-deriver — derive closure(H)/closure(B) + old-anchor sanity
-#      (derived(B)==pin@B); H≠B mismatch는 admission의 NORMAL/ROTATION 자격
-#      판정으로 위임 (rotation 대응 — 자격 판정은 Axiom B-built code)
-#   2. gateway          — runner-pool-acceptance (reusable @SHA, H code)
-#   3. tree-identity    — testedTree (from gateway artifact) == mergeTree
-#   4. admission        — B-pinned definition → witness + NORMAL/ROTATION
-#      (needs [closure-deriver] 단독 — derived-closure 소비; gateway lane과
-#      병렬, plan item 8)
-#   5. mint-prepare     — certificate-mint @SHA stage=prepare (read tier):
-#      B 자체빌드(C1) + witness 검증 + 서명 + cert artifact 업로드
-#   6. mint-publish     — certificate-mint @SHA stage=publish (write tier,
-#      THE single contents: write): [X] 5종 + [B2] (a)(b)(c) + D6 3분기 CAS +
-#      exactly-once → ledger (B-pinned code, ③) — needs
-#      [mint-prepare, gateway, tree-identity]
-#   7. admission-check  — verdict job (always() + needs.*.result -> FAILURE;
-#      skipped must never render green)
-
+# bootstrap allowlist = S0 산출물, N+1에서 폐기.
+# ────────────────────────────────────────────────────────────────
 name: admission-gate
 
 on:
@@ -83,418 +36,199 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Job 1 — closure-deriver (C2 derivation authority).
-  # The checker-closure definition is EXECUTED FROM B (deriver built from
-  # B's own copy of tools/ci/derive_checker_closure.nim — never from H's
-  # copy; a PR that tampers the deriver proves nothing). Produces:
-  #   derived-H.txt = derived(H), derived-B.txt = derived(B)
-  # and enforces the OLD-ANCHOR sanity: derived(B) == pin@B where pin@B is
-  # .trustedCheckerTreeClosure in config/trusted_writer_set.json AT B
-  # (git show B: — the working tree is PR-influenced, so the pin is read
-  # from the base object, mirroring landing-integrity's "base is the
-  # authority" rule). Members must be exactly the Tier C set (zero workflow
-  # YAMLs — workflow definitions are platform-SHA-governed).
-  #   derived(H) != derived(B) is NOT a failure here — it is exactly the
-  #   condition ROTATION authorizes; adjudication (NORMAL requires equality,
-  #   ROTATION requires allowlist+atomic anchors) happens in the admission
-  #   job's qualification (B-built merge_cli Pass) with these sets as input.
-  # Fail-closed: deriver non-zero, missing file at B, missing pin key at B,
-  # derived(B) != pin@B (rotation without new pin), YAML member found, or
-  # required Tier C member absent → job red → verdict red → merge blocked.
+  # bootstrap-verifier — 유일한 실무 job.
+  # pull_request 이벤트의 files API로 변경 파일 집합을 얻어 bootstrap
+  # allowlist와 대조한다. 파일 1개라도 allowlist 밖이면 FAIL.
   # ──────────────────────────────────────────────────────────────
-  closure-deriver:
+  bootstrap-verifier:
+    name: bootstrap-verifier
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     env:
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      # Full checkout — the deriver walks git objects at arbitrary refs.
-      # Default ref for pull_request = the merge ref; fetch-depth 0 makes
-      # base and head history available; the explicit fetch below is the
-      # belt-and-braces guarantee that B and H objects exist locally.
-      - name: "[closure] Checkout target repo (full history)"
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-
-      - name: "[closure] Fetch base (B) and head (H) objects explicitly"
-        run: |
+      - name: "[bootstrap] 분류·결속·위험 차단 판정 (files API, fail-closed)"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |-
           set -euo pipefail
-          printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' \
-            || { echo "FAIL: base.sha '$BASE_SHA' not a 40-hex OID (merge_group event? fail-closed forward-compat)" >&2; exit 1; }
-          printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' \
-            || { echo "FAIL: head.sha '$HEAD_SHA' not a 40-hex OID (merge_group event? fail-closed forward-compat)" >&2; exit 1; }
-          git fetch --no-tags --force origin "$BASE_SHA" "$HEAD_SHA"
 
-      # C2 rule: B-executed, NOT H's copy. The definition of the closure
-      # derivation itself comes from the base object, so a PR cannot
-      # influence WHAT is derived, only WHICH H is derived (data).
-      - name: "[closure] Extract deriver source FROM B (git show BASE_SHA:tools/ci/derive_checker_closure.nim)"
-        run: |
-          set -euo pipefail
-          fail() { echo "CLOSURE: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "base.sha '$BASE_SHA' not a 40-hex OID"
-          git show "$BASE_SHA":tools/ci/derive_checker_closure.nim > /tmp/deriver.nim \
-            || fail "tools/ci/derive_checker_closure.nim missing at B=$BASE_SHA (PR-1 must land the deriver before this gate activates — Phase 3)"
-          test -s /tmp/deriver.nim || fail "deriver source extracted empty from B"
-          echo "[closure] deriver source extracted from B=$BASE_SHA ($(wc -l < /tmp/deriver.nim) lines)"
+          fail() {
+            echo "[bootstrap-verifier] verdict: FAIL (fail-closed) — $1"
+            echo "::error::[bootstrap-verifier] FAIL — $1 (fail-closed)"
+            exit 1
+          }
 
-      # Inline choosenim pattern (same as runner-pool-acceptance select job):
-      # toolchain pinned to 2.2.10 for determinism; the deriver is a pure
-      # git-object walker (no compiler internals), so no toolchain
-      # setup-axiom action is needed.
-      - name: "[closure] Install Nim 2.2.10 (choosenim, pinned)"
-        run: |
-          set -euo pipefail
-          export CHOOSENIM_NO_COLOR=1 CHOOSE_NIM_QUIET=1
-          curl -sSf https://nim-lang.org/choosenim/init.sh | sh -s -- -y
-          "$HOME/.nimble/bin/choosenim" 2.2.10
-          echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+          # ── bootstrap allowlist = S0 산출물, N+1에서 폐기 ──────────
+          # S0-a (A-cache), S0-c (epoch gate), S0-d (callee gate),
+          # S0-e (SL-08 binding), 정책 v24/v25, 게이트 배선.
+          ALLOWLIST=(
+            ".github/workflows/admission-check.yml"
+            ".github/workflows/certificate-mint.yml"
+            ".github/workflows/runner-pool-acceptance.yml"
+            "config/trusted_writer_set.json"
+            "config/executor_authority.json"
+            "config/repository_surface.json"
+            "config/policy/epoch_manifest.json"
+            "src/gate/slice_catalog.nim"
+            "src/core/trusted/layer_rules.nim"
+            "tools/ci/epoch_transaction_gate.nim"
+            "tools/ci/verify_b_artifact.sh"
+            "tests/ci/test_verify_b_artifact.nim"
+            ".github/actions/setup-axiom-toolchain/action.yml"
+            "Makefile"
+            ".githooks/pre-push"
+            ".github/workflows/admission-gate.yml"
+          )
 
-      # --skipParentCfg --skipProjCfg: hermetic compile (no repo config.nims
-      # can inject behavior into the B-extracted source); --path:src mirrors
-      # the repo's own deriver build invocation (runner-pool pattern).
-      - name: "[closure] Compile deriver (from B source)"
-        run: |
-          set -euo pipefail
-          nim c --hints:off --skipParentCfg --skipProjCfg --path:src -o:/tmp/deriver /tmp/deriver.nim
-          test -x /tmp/deriver || { echo "FAIL: deriver binary missing after nim c" >&2; exit 1; }
+          if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+            fail "merge_group 이벤트 — bootstrap verifier 미지원 (merge queue 비사용, forward-compat fail-closed)"
+          fi
+          [ -n "${PR_NUMBER:-}" ] || fail "PR 번호 없음 (pull_request 이벤트 아님)"
+          printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "base.sha '$BASE_SHA' 비정상 (40-hex 아님)"
+          printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "head.sha '$HEAD_SHA' 비정상 (40-hex 아님)"
 
-      # Derive both sets + OLD-ANCHOR sanity (fail-closed). The pin is read
-      # from B (git show), never from the working tree. jq -e fail-closes
-      # when .trustedCheckerTreeClosure is absent at B (genesis landed in
-      # Axiom #275 — absent pin after genesis = tamper/misconfig → red).
-      # derived(H) != derived(B) is intentionally NOT failed here: that
-      # mismatch is the ROTATION condition, adjudicated by admission's
-      # qualification pass (B-built merge_cli) with these uploaded sets.
-      - name: "[closure] Derive closure(H) + closure(B) + old-anchor sanity (fail-closed)"
-        run: |
-          set -euo pipefail
-          fail() { echo "CLOSURE: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "base.sha '$BASE_SHA' malformed"
-          printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "head.sha '$HEAD_SHA' malformed"
-
-          /tmp/deriver --ref "$HEAD_SHA" | LC_ALL=C sort > /tmp/derived-H.txt
-          /tmp/deriver --ref "$BASE_SHA" | LC_ALL=C sort > /tmp/derived-B.txt
-          # H-side pin copy (the ROTATION candidate's proposed anchor) —
-          # JSONC verbatim; the admission-side parser strips comments.
-          git show "$HEAD_SHA":config/trusted_writer_set.json > /tmp/pin-H.json \
-            || fail "config/trusted_writer_set.json missing at H=$HEAD_SHA"
-          git show "$BASE_SHA":config/trusted_writer_set.json \
-            | sed -E 's|^[[:space:]]*//.*$||' \
-            | jq -e -r '.trustedCheckerTreeClosure | to_entries | sort_by(.key)[]
-                     | "\(.value.mode) \(.value.type) \(.value.sha)\t\(.key)"' \
-            | LC_ALL=C sort > /tmp/pin_B.txt \
-            || fail "config/trusted_writer_set.json@B has no trustedCheckerTreeClosure object (post-genesis the key must exist — absence = tamper/misconfig)"
-
-          cmp /tmp/derived-B.txt /tmp/pin_B.txt \
-            || fail "derived(B) != pin@B — B's derived closure diverges from the trusted pin at B (old anchor invalid; rotation must carry the new pin atomically)"
-
-          # Members sanity = exactly the Tier C set: required members present ...
-          for member in \
-              "ci/checker.mk" \
-              "tools/ci/derive_checker_closure.nim" \
-              "tools/ci/impact_closure_selector.nim" \
-              "tools/ci/proof_reconcile_gate.nim" \
-              "tests/gateway/all_gateway_runner.nim"; do
-            grep -qE "[[:space:]]${member}\$" /tmp/pin_B.txt || fail "Tier C member missing from closure: $member"
+          # ── 변경 파일 집합: files API (per_page=100, 페이지네이션) ──
+          # API 실패/페이지네이션 실패 = fail-closed (축소 판정 금지).
+          FILES=()
+          SURFACE_DIFF_BODY=""
+          PAGE=0
+          while :; do
+            PAGE=$((PAGE + 1))
+            [ "$PAGE" -le 40 ] || fail "파일 페이지 40개 초과 (변경 파일 >= 3901 — 과다, fail-closed)"
+            RESP=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100&page=${PAGE}") \
+              || fail "files API page ${PAGE} 조회 실패 (HTTP error)"
+            printf '%s' "$RESP" | jq -e 'type == "array"' >/dev/null || fail "files API page ${PAGE} 응답 비정상"
+            N=$(printf '%s' "$RESP" | jq 'length')
+            if [ "$N" -eq 0 ]; then
+              break
+            fi
+            LIST=$(printf '%s' "$RESP" | jq -r '.[].filename') || fail "files API page ${PAGE} 파일명 파싱 실패"
+            while IFS= read -r fname; do
+              [ -n "$fname" ] && FILES+=("$fname")
+            done <<< "$LIST"
+            PATCH_BODY=$(printf '%s' "$RESP" | jq -r '.[] | select(.filename == "config/repository_surface.json") | .patch // empty')
+            if [ -n "$PATCH_BODY" ]; then
+              SURFACE_DIFF_BODY="$PATCH_BODY"
+            fi
           done
-          # ... and zero workflow YAMLs (workflow definitions are governed
-          # by the platform SHA pin, never by the closure).
-          YML_COUNT="$(grep -cE '\.(yml|yaml)$' /tmp/pin_B.txt || true)"
-          [ "$YML_COUNT" -eq 0 ] || fail "closure contains $YML_COUNT workflow YAML member(s) — closure expansion forbidden"
 
-          echo "CLOSURE: anchor OK — derived(B)==pin@B ($(wc -l < /tmp/pin_B.txt) entries, $YML_COUNT yml); derived(H) uploaded for NORMAL/ROTATION adjudication ($(wc -l < /tmp/derived-H.txt) entries)"
+          echo "[bootstrap-verifier] PR #${PR_NUMBER} — changed files: ${#FILES[@]}"
+          for f in "${FILES[@]}"; do
+            echo "[bootstrap-verifier]   changed: ${f}"
+          done
 
-      - name: "[closure] Upload derived-closure sets (admission qualification input)"
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: derived-closure
-          path: |
-            /tmp/derived-H.txt
-            /tmp/derived-B.txt
-            /tmp/pin-H.json
-          retention-days: 7
-  # ──────────────────────────────────────────────────────────────
-  # Job 2 — gateway. Executes the Axiom gateway acceptance pool as a
-  # reusable workflow pinned to the exact Axiom commit (H-code execution —
-  # this is where the PR's own code is tested, under a READ-ONLY token).
-  #   target_sha = github.sha: for pull_request events github.sha IS the
-  #   merge ref (base⊕head) = the exact landing-candidate tree — the tree
-  #   the gateway must have tested, and the tree mergeTree is compared
-  #   against. force_full = false (caller context selection semantics).
-  # ──────────────────────────────────────────────────────────────
-  gateway:
-    needs: [closure-deriver]
-    # H-code execution: read-only token — the gateway tests the PR tree,
-    # it must never be able to write anything from it.
-    permissions:
-      contents: read
-    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@b979171cab9826435def316540987dc934d50c0d
-    with:
-      # inputs confirmed against main's workflow_call: target_sha (string, required) + force_full (bool, default false)
-      target_sha: ${{ github.sha }}
-      force_full: false
-  # ──────────────────────────────────────────────────────────────
-  # Job 3 — tree-identity. The gateway's testedTreeDigest (fetched from
-  # the gateway job's artifact on THIS run) must equal mergeTree = the
-  # landing candidate's tree (tree of github.sha). Digest equality =
-  # "Axiom verified exactly the object identity that will land" — a strict
-  # complement to the platform's strict freshness (stale-candidate check).
-  # Fail-closed: artifact missing, digest malformed, or mismatch → red.
-  # ──────────────────────────────────────────────────────────────
-  tree-identity:
-    needs: [gateway]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      # actions: read — required to download the gateway job's artifact
-      actions: read
-    outputs:
-      mergeTreeDigest: ${{ steps.merge.outputs.mergeTreeDigest }}
-      testedTreeDigest: ${{ steps.check.outputs.testedTreeDigest }}
-    steps:
-      - name: "[identity] Checkout target repo (github.sha object)"
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
+          # ── 1) 허용 범위 판정: 전부 allowlist 내 / 위험 변경 차단 ──
+          declare -A SEEN
+          OFFENDING=()
+          GATE_BYPASS=()
+          for f in "${FILES[@]}"; do
+            if [ -n "${SEEN[$f]:-}" ]; then
+              continue
+            fi
+            SEEN[$f]=1
+            allowed=0
+            for a in "${ALLOWLIST[@]}"; do
+              if [ "$f" = "$a" ]; then
+                allowed=1
+                break
+              fi
+            done
+            if [ "$allowed" -eq 1 ]; then
+              echo "[bootstrap-verifier] allowed: ${f}"
+              continue
+            fi
+            case "$f" in
+              AGENTS.md)
+                echo "::error::[bootstrap-verifier] blocked: AGENTS.md (헌법 문서 — bootstrap 단계 수정 금지)"
+                GATE_BYPASS+=("AGENTS.md")
+                ;;
+              config/policy/merge_admission.json)
+                echo "::error::[bootstrap-verifier] blocked: config/policy/merge_admission.json (merge admission 정책 조작 시도)"
+                GATE_BYPASS+=("config/policy/merge_admission.json")
+                ;;
+              .github/workflows/*)
+                echo "::error::[bootstrap-verifier] blocked: ${f} (allowlist 외 workflow 변경 = 게이트 우회 시도)"
+                GATE_BYPASS+=("${f}")
+                ;;
+              *)
+                OFFENDING+=("${f}")
+                ;;
+            esac
+          done
 
-      - name: "[identity] Compute mergeTree = tree(github.sha) (merge candidate)"
-        id: merge
-        run: |
-          set -euo pipefail
-          fail() { echo "IDENTITY: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          MERGE_SHA="${{ github.sha }}"
-          printf '%s' "$MERGE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "github.sha '$MERGE_SHA' not a 40-hex OID"
-          MERGE_TREE="$(git rev-parse "$MERGE_SHA^{tree}")" || fail "cannot resolve $MERGE_SHA^{tree}"
-          echo "mergeTreeDigest=$MERGE_TREE" >> "$GITHUB_OUTPUT"
-          echo "ADM_MERGE_TREE=$MERGE_TREE" >> "$GITHUB_ENV"
-          echo "[identity] mergeTree=$(git rev-parse "$MERGE_SHA" | cut -c1-12)...^{tree} = $MERGE_TREE (merge ref — exact landing candidate)"
+          # ── 3) trust-surface 결속: TWS 원자 페어 ──
+          TWS_BROKEN=""
+          if [ -n "${SEEN[config/trusted_writer_set.json]:-}" ] && [ -z "${SEEN[.github/workflows/admission-check.yml]:-}" ]; then
+            echo "::error::[bootstrap-verifier] blocked: config/trusted_writer_set.json 변경 시 같은 PR의 .github/workflows/admission-check.yml 변경 필수 (TWS 원자 페어)"
+            TWS_BROKEN=1
+          fi
 
-      # artifact name/member published by Axiom runner-pool-acceptance
-      # (select job) — landed in Axiom PR #274: `tested-tree-digest`
-      # containing file `testedTreeDigest`.
-      - name: "[identity] Download gateway testedTreeDigest artifact"
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: tested-tree-digest
-          path: gateway-digest
+          # ── 2) config/repository_surface.json bypass/enforcement 조작 차단 ──
+          SURFACE_TAMPER=""
+          if [ -n "${SEEN[config/repository_surface.json]:-}" ]; then
+            if [ -z "${SURFACE_DIFF_BODY:-}" ]; then
+              echo "[bootstrap-verifier] repository_surface.json patch 미제공(대형 diff) — raw(base/head) 비교 fallback"
+              BASE_RAW=$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github.raw" \
+                "https://api.github.com/repos/${REPO}/contents/config/repository_surface.json?ref=${BASE_SHA}") \
+                || fail "repository_surface.json raw(base) 조회 실패"
+              HEAD_RAW=$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github.raw" \
+                "https://api.github.com/repos/${REPO}/contents/config/repository_surface.json?ref=${HEAD_SHA}") \
+                || fail "repository_surface.json raw(head) 조회 실패"
+              SURFACE_DIFF_BODY=$(diff -u <(printf '%s\n' "$BASE_RAW") <(printf '%s\n' "$HEAD_RAW") || true)
+            fi
+            if printf '%s' "$SURFACE_DIFF_BODY" | grep -E '^\+[^+]' | grep -qiE 'bypass|enforcement'; then
+              echo "::error::[bootstrap-verifier] blocked: config/repository_surface.json의 bypass/enforcement류 필드 조작 시도"
+              SURFACE_TAMPER=1
+            fi
+          fi
 
-      - name: "[identity] Assert testedTree == mergeTree (fail-closed)"
-        id: check
-        run: |
-          set -euo pipefail
-          fail() { echo "IDENTITY: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          TESTED="$(cat gateway-digest/testedTreeDigest)" || fail "testedTreeDigest file missing in gateway artifact"
-          printf '%s' "$TESTED" | grep -qE '^[0-9a-f]{40}$' || fail "testedTreeDigest '$TESTED' not a 40-hex tree OID"
-          [ "$TESTED" = "$ADM_MERGE_TREE" ] \
-            || fail "testedTreeDigest '$TESTED' != mergeTree '$ADM_MERGE_TREE' — the gateway did not test the landing candidate tree"
-          echo "testedTreeDigest=$TESTED" >> "$GITHUB_OUTPUT"
-          echo "IDENTITY: OK — gateway tested tree == merge candidate tree ($TESTED)"
+          # ── 최종 판정 (fail-closed) ──
+          if [ ${#OFFENDING[@]} -gt 0 ] || [ ${#GATE_BYPASS[@]} -gt 0 ] || [ -n "${TWS_BROKEN:-}" ] || [ -n "${SURFACE_TAMPER:-}" ]; then
+            [ ${#OFFENDING[@]} -eq 0 ] || echo "::error::[bootstrap-verifier] allowlist 밖 변경: ${OFFENDING[*]}"
+            [ ${#GATE_BYPASS[@]} -eq 0 ] || echo "::error::[bootstrap-verifier] 위험 변경 차단: ${GATE_BYPASS[*]}"
+            [ -z "${TWS_BROKEN:-}" ] || echo "::error::[bootstrap-verifier] trust-surface 결속 위반 (TWS 원자 페어)"
+            [ -z "${SURFACE_TAMPER:-}" ] || echo "::error::[bootstrap-verifier] repository_surface bypass/enforcement 조작"
+            fail "bootstrap 범위 밖 변경 ${#OFFENDING[@]}건 / 위험 변경 ${#GATE_BYPASS[@]}건"
+          fi
+
+          echo "[bootstrap-verifier] PR #${PR_NUMBER} 분류: bootstrap 허용 범위 — 변경 파일 ${#SEEN[@]}종 전부 allowlist 내"
+          echo "[bootstrap-verifier] verdict: PASS"
+
   # ──────────────────────────────────────────────────────────────
-  # Job 4 — admission. B-pinned definition (workflow_call: {} — the callee
-  # derives every B/H/PR fact from the propagated pull_request caller
-  # context; no inputs are passed). Produces witness + NORMAL/ROTATION
-  # qualification for this exact candidate; consumes the derived-closure
-  # sets uploaded by closure-deriver (same-run artifact) when present so
-  # its qualification pass can adjudicate NORMAL (closure equality) vs
-  # ROTATION (allowlist + atomic anchors).
-  # ──────────────────────────────────────────────────────────────
-  admission:
-    # needs [closure-deriver] 단독 (plan rev.7 Phase 2 item 8 — DAG 정정):
-    # admission은 closure-deriver의 derived-closure same-run artifact만
-    # 소비한다 (tree-identity 산출물 비소비 — callee admission-check.yml이
-    # mergeTree를 스스로 유도). tree-identity/gateway 완료를 기다리지 않으므로
-    # mint-prepare가 gateway lane과 병렬로 시작된다 (벽시계 회귀 제거).
-    needs: [closure-deriver]
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-      # checks: write — CALLEE(admission-check.yml) top-level 선언과의
-      # permissions 계약: caller grant < callee 선언이면 호출 그래프 전체가
-      # 계획 단계에서 거부되어 0-job startup_failure(공식 규칙 — GITHUB_TOKEN
-      # 권한은 caller에서 downgrade만 가능; 2026-09-26 첫 런 실증). callee의
-      # landing-trigger Check Run POST가 이 스코프를 사용한다.
-      checks: write
-    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@b979171cab9826435def316540987dc934d50c0d
-    # workflow_call inputs: none (on.workflow_call == {}) — caller context propagates.
-  # ──────────────────────────────────────────────────────────────
-  # Job 5 — mint-prepare (2-stage stage 1 — READ tier). certificate-mint
-  # @SHA stage=prepare: B 자체빌드(write-tier 계약 예외 C1) + witness 검증 +
-  # 서명 + cert artifact 업로드(trusted-name subject-certificate-<run_attempt>,
-  # cert_sha256 manifest 기록 — [X] 2 원천). 생성 authority = write-tier
-  # 자체빌드 1개 ([B1]) — publish는 이를 소비만 한다 (소비자 재생성 0).
-  # needs [admission] (witness 소비) + GATEWAY와 병렬 (벽시계 회귀 제거 —
-  # plan rev.7 Phase 2 item 7-8). plan-level grant = content: write (callee
-  # top-level 선언과의 plan-time 계약 — 2026-09-26 실증); RUNTIME token은
-  # callee prepare job-level downshift(contents: read)로 read 한정.
-  # ──────────────────────────────────────────────────────────────
-  mint-prepare:
-    needs: [admission]
-    permissions:
-      # NOTE — plan-level grant = callee TOP-LEVEL 선언과 일치해야 함 (2026-09-26
-      # 실증: caller grant < callee top-level 선언 → 호출 그래프 전체 0-job
-      # startup_failure). certificate-mint.yml top-level = contents: write
-      # (TrustedWriterSet scan anchor). RUNTIME write holder는 callee의
-      # job-level downshift(prepare = contents: read)가 보장 — publish 단독.
-      contents: write
-      actions: read
-      pull-requests: read
-    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b979171cab9826435def316540987dc934d50c0d
-    with:
-      # inputs = the landed on.workflow_call.inputs contract (6 required —
-      # stage + runId/runAttempt/headSha/baseSha/prNumber, camelCase); the
-      # callee's activation guard re-verifies every value against the
-      # actions/PR API before minting. stage='prepare' — any other value
-      # skips both callee jobs → verdict converts skipped to FAILURE ([F]).
-      stage: prepare
-      runId: ${{ github.run_id }}
-      runAttempt: ${{ github.run_attempt }}
-      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
-      prNumber: ${{ github.event.pull_request.number }}
-  # ──────────────────────────────────────────────────────────────
-  # Job 6 — mint-publish (2-stage stage 2 — WRITE tier, THE single
-  # contents: write grant in the gate). certificate-mint @SHA
-  # stage=publish: [X] 5종 (artifact identity · file digest · field
-  # binding · Ed25519+closure · CAS 원자성) + [B2] (a) run.headSha ==
-  # cert.headSha · (b) testedTreeDigest == tree(github.sha) == cert.certTree
-  # (동일 semantic domain — canonical merge-tree SHA, Agent-A 확정) · (c)
-  # gateway lane conclusion==success (jobs API) + D6 3분기 reconciliation +
-  # exactly-once → ledger-append (refs/heads/axiom/certificates 한정).
-  # publish는 same-run artifact를 스스로 fetch 하므로 (tested-tree-digest
-  # 포함 — [B2] (b)) needs = ordering + artifact 존재 보장.
-  #
-  # ③ write-boundary contract (plan Phase 0-③, TrustedWriterSet meaning):
-  #   mint-publish = B-pinned code만 실행 (definition @SHA + verifier는
-  #     prepare가 업로드한 B-built bin/ax — 소비자 재생성 0)
-  #   + H는 data-only input (headSha 등 — H 코드는 mint에서 실행/빌드 금지)
-  #   + write destination = ledger (refs/heads/axiom/certificates) 한정
-  #   + main 직접 mutation = 불가 (main 변경 = GitHub native MERGE 하나뿐 —
-  #     M-B 결속). contents: write는 path-level capability가 아니므로
-  #     "ledger only"는 계약이며 보장은 (a) B-pinned code + architect
-  #     review, (b) H data-only, (c) M-B 결속이다.
-  # ──────────────────────────────────────────────────────────────
-  mint-publish:
-    needs: [mint-prepare, gateway, tree-identity]
-    permissions:
-      contents: write
-      actions: read
-      pull-requests: read
-    # SHA-pinned to Axiom b979171cab9826435def316540987dc934d50c0d (PR #310 chore/ci-epoch-n1 — mint prepare cert-artifact bin/ 생성 수정; blob(admission-check.yml) == TWS 5662e2b6e)
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@b979171cab9826435def316540987dc934d50c0d
-    with:
-      stage: publish
-      runId: ${{ github.run_id }}
-      runAttempt: ${{ github.run_attempt }}
-      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
-      prNumber: ${{ github.event.pull_request.number }}
-  # ──────────────────────────────────────────────────────────────
-  # Job 7 — verdict. REQUIRED STATUS CONTEXT: the check run for THIS job
-  # is named after the job (Actions check-run name = job name), so the job
-  # id AND name are `admission-check` — the single context the main
-  # ruleset's required_status_checks == ["admission-check"] binds to.
-  #
-  # Fail-closed (plan 구멍 11·14): if: ${{ always() }} so the verdict runs
-  # even when an upstream job fails or SKIPS, then every needed job's
-  # result is evaluated — a skipped job has result 'skipped' and is
-  # converted to FAILURE, never green. A required status check that is
-  # absent/skipped would otherwise look satisfied to the ruleset.
+  # admission-check — verdict job. name (JOB NAME) = required check
+  # context (ruleset 20303214 required_status_checks) — 절대 불변.
+  # bootstrap-verifier 결과가 success일 때만 PASS, 그 외 fail-closed.
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [closure-deriver, gateway, tree-identity, admission, mint-publish]
-    if: ${{ always() }}
+    needs: [bootstrap-verifier]
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
-        env:
-          RESULT_CLOSURE_DERIVER: ${{ needs.closure-deriver.result }}
-          RESULT_GATEWAY: ${{ needs.gateway.result }}
-          RESULT_TREE_IDENTITY: ${{ needs.tree-identity.result }}
-          RESULT_ADMISSION: ${{ needs.admission.result }}
-          RESULT_MINT_PUBLISH: ${{ needs.mint-publish.result }}
-        run: |
-          set -euo pipefail
-          fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          for pair in \
-              "closure-deriver:$RESULT_CLOSURE_DERIVER" \
-              "gateway:$RESULT_GATEWAY" \
-              "tree-identity:$RESULT_TREE_IDENTITY" \
-              "admission:$RESULT_ADMISSION" \
-              "mint-publish:$RESULT_MINT_PUBLISH"; do
-            JOB="${pair%%:*}"; RESULT="${pair#*:}"
-            [ "$RESULT" = "success" ] \
-              || fail "needed job '$JOB' result='$RESULT' (expected 'success' — skipped/cancelled/failed must block, never green)"
-          done
-          echo "[verdict] OK — all 5 needed jobs succeeded"
-
-      # Admission evidence from the admission job's uploaded artifact
-      # (admission-check-<PR>: witness.json + admission-verdict.log — the
-      # dry-run --json output carrying `qualification`).
-      - name: "[verdict] Download admission evidence artifact"
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: admission-check-${{ github.event.pull_request.number }}
-          path: admission-artifact
-
-      # Admission predicate (certificate ∈ predicate — ②): identity
-      # outputs match + qualification ∈ {NORMAL, ROTATION} + certificate
-      # issued & verified == mint-publish job success (mint-publish's own
-      # gates: witness provenance re-verification, [X] 5종, [B2] (a)(b)(c),
-      # D6, FF-CAS 3분기 + exactly-once ledger-append — a red mint-publish
-      # never reaches here green). GREEN only when every element holds
-      # (all evidence complete pre-landing).
-      # TODO(PHASE-4 identity PR): certTree==mergeTree ledger audit joins
-      # this predicate once the witness/ certTree digest chain lands in
-      # Axiom (ADR-0025 잔여 한계 — 착지 후 audit observation과 별개).
-      - name: "[verdict] Admission predicate: identity + qualification + certificate (GREEN)"
-        env:
-          MERGE_TREE_DIGEST: ${{ needs.tree-identity.outputs.mergeTreeDigest }}
-          TESTED_TREE_DIGEST: ${{ needs.tree-identity.outputs.testedTreeDigest }}
-        run: |
-          set -euo pipefail
-          fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          printf '%s' "$MERGE_TREE_DIGEST" | grep -qE '^[0-9a-f]{40}$' \
-            || fail "mergeTreeDigest '$MERGE_TREE_DIGEST' missing/malformed (tree-identity output)"
-          [ "$TESTED_TREE_DIGEST" = "$MERGE_TREE_DIGEST" ] \
-            || fail "testedTreeDigest '$TESTED_TREE_DIGEST' != mergeTreeDigest '$MERGE_TREE_DIGEST' (identity mismatch)"
-          # admission-verdict.log = stderr log lines + ONE stdout JSON line
-          # (agent-54 contract: stdout carries exactly {"prNumber":...}) —
-          # extract the JSON line first, then parse qualification from it.
-          # Epoch N+1 hardening (실측 #303, gate verdict 4연속 실패,
-          # 2026-09-28): 옛 producer는 stdout 8192B flush 경계에 stderr
-          # [INFO] 라인이 끼어들어 >8KB JSON이 중간에서 분할됐고(reproduced
-          # artifact: offset 8192 삽입), 라인 기반 grep은 첫 조각(8303B,
-          # 중간 문자열)만 추출해 jq가 "Unfinished string at EOF at line 1,
-          # column 8303"으로 죽었다. cutover 후 새 producer(분리 수집)는
-          # 완전 단일 라인 JSON을 쓰므로 아래 검증은 방어선: 끝 `}` 확인
-          # (분할/절단 즉시 탐지) + prNumber 스키마 일치 + 명시적 실패
-          # 메시지(원시 jq 에러 노출 금지).
-          JSON_LINE="$(grep -o '{"prNumber":[0-9]*,.*' admission-artifact/admission-verdict.log | tail -n 1 || true)"
-          [ -n "$JSON_LINE" ] || fail "qualification JSON line not found in admission-verdict.log (evidence integrity)"
-          case "$JSON_LINE" in
-            *'}' ) ;;
-            *) fail "verdict JSON line incomplete (${#JSON_LINE} bytes, trailing '}' missing — interleaved stdout/stderr or line truncation; evidence integrity)" ;;
-          esac
-          JSON_PRNUMBER="$(printf '%s' "$JSON_LINE" | jq -r '.prNumber // -1' || true)"
-          [ "$JSON_PRNUMBER" = "${{ github.event.pull_request.number }}" ] \
-            || fail "verdict JSON prNumber '$JSON_PRNUMBER' != PR #${{ github.event.pull_request.number }} (wrong/malformed artifact — evidence integrity)"
-          QUALIFICATION="$(printf '%s' "$JSON_LINE" | jq -r '.qualification // empty' || true)"
-          [ -n "$QUALIFICATION" ] || fail "qualification field missing/unparseable in JSON line (evidence integrity)"
-          case "$QUALIFICATION" in
-            NORMAL|ROTATION) ;;
-            *) fail "qualification '$QUALIFICATION' — expected NORMAL or ROTATION" ;;
-          esac
-          # certificate issued & verified: mint-publish job success is
-          # asserted in step 1; mint-publish's internal gates are the
-          # certificate verification.
-          echo "ADMISSION_GATE: GREEN — identity ✓ qualification=$QUALIFICATION ✓ certificate issued (mint-publish green) ✓ (all pre-landing evidence satisfied)"
+      - name: "admission verdict (bootstrap-verifier result, fail-closed)"
+        shell: bash
+        run: |-
+          result="${{ needs.bootstrap-verifier.result }}"
+          echo "[admission-check] bootstrap-verifier result: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "[admission-check] verdict: FAILURE (fail-closed)"
+            exit 1
+          fi
+          echo "[admission-check] verdict: PASS (bootstrap verifier)"
