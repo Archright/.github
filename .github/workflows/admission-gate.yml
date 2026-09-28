@@ -87,7 +87,7 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
-  # certificate-mint.yml@c55f0482ec63e0d6be1f5b90ab8723e0692d01c3
+  # certificate-mint.yml@7c6d3e48b860e426dc82e9f2885d16632f285633
   # (PR #329 feat/epoch-n5-sl04 — N+5 main merge sha, C5/C1 계약 개정:
   # prepare build-base-artifacts 소비) stage=prepare
   # (read tier — callee prepare job-level contents: read; publish는 N+4 K
@@ -109,7 +109,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c55f0482ec63e0d6be1f5b90ab8723e0692d01c3
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@7c6d3e48b860e426dc82e9f2885d16632f285633
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -143,7 +143,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c55f0482ec63e0d6be1f5b90ab8723e0692d01c3
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@7c6d3e48b860e426dc82e9f2885d16632f285633
     with:
       stage: publish
       runId: ${{ github.run_id }}
