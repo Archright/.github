@@ -5,6 +5,12 @@
 # (SL-12 certificate mint prepare — certificate-mint.yml@N+4 main sha,
 # needs [admission]) + verdict needs [admission, mint-prepare] — verdict
 # = callee result 단일 판정의 확장 (둘 다 success만 GREEN, fail-closed).
+# Epoch N+5 extension: mint-publish 래퍼 신설 (SL-04 certificate
+# validity — certificate-mint.yml@N+5 main sha, stage=publish,
+# needs [mint-prepare]) + verdict needs [admission, mint-prepare,
+# mint-publish] — SL-04 [X]1~3 검증 발화를 verdict에 결속 (셋 다
+# success만 GREEN). C5/C1 계약 개정 반영: callee prepare는 N+5 main부터
+# build-base-artifacts 소비 (자체빌드 폐기).
 #
 # K = "GitHub가 이 epoch을 실행하게 하는 최소 제어 장치" (핸들만 —
 # semantic 엔진 코드 잔존 금지). semantic 실행 범위는 callee
@@ -33,7 +39,10 @@
 #                     재유도 = 순수 중복)
 #   mint-prepare    — epoch N+4 (SL-12)에서 부활 (아래 mint-prepare
 #                     래퍼) — certificate-mint prepare read tier
-#   mint-publish    — certificate-mint publish (SL-0713 미정착 — 유지)
+#   mint-publish    — epoch N+5 (SL-04)에서 부활 (아래 mint-publish
+#                     래퍼) — certificate-mint publish write tier;
+#                     publish 내부 P0/P5/P6/P7은 scope_sl0713 게이트로
+#                     NO-FIRE (SL-0713 미정착 — D6/[B2] 대기)
 # verdict 다단계(identity+qualification+certificate predicate)도 축소 —
 # K verdict = callee result 단일 판정 (fail-closed, "never green").
 #
@@ -105,6 +114,40 @@ jobs:
       prNumber: ${{ github.event.pull_request.number }}
 
   # ──────────────────────────────────────────────────────────────
+  # mint-publish — certificate-mint callee 래퍼 (SL-04, epoch N+5 승격).
+  # certificate-mint.yml@6edfd7a50 (PR #329 feat/epoch-n5-sl04 —
+  # N+5 main merge sha) stage=publish (write tier — THE single
+  # contents: write grant in the gate; callee publish job-level
+  # contents: write).
+  # needs: [mint-prepare] — publish는 같은 run의
+  # subject-certificate-<run_attempt> artifact를 run-scoped API로 소비
+  # (SL-12→SL-04 데이터 인과; 구 DAG 94a6f0864 freeze tag mint-publish
+  # needs:[mint-prepare, gateway, tree-identity]에서 gateway/tree-identity
+  # 미정착 제외 실측 — publish callee는 admission artifact를 소비하지
+  # 않으므로 [admission] 에지 불필요, DAG 폐쇄는 mint-prepare가 보장).
+  # job-level permissions = callee workflow_call top-level 선언과 정확히
+  # 일치 (contents: write + actions: read + pull-requests: read —
+  # mint-prepare 래퍼와 동일 셋). callee 내부 [slice-engine] 게이트가
+  # manifest@B implementedSlices로 publish step 발화를 제한
+  # (scope_sl04 — N+5 main: sl04=fire · sl0713=NO-FIRE — P0/P5/P6/P7
+  # skip 실측은 acceptance 기록).
+  # ──────────────────────────────────────────────────────────────
+  mint-publish:
+    needs: [mint-prepare]
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@6edfd7a5077335ac932a3ac86ffa9a8ea0894efa
+    with:
+      stage: publish
+      runId: ${{ github.run_id }}
+      runAttempt: ${{ github.run_attempt }}
+      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
+      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
+      prNumber: ${{ github.event.pull_request.number }}
+
+  # ──────────────────────────────────────────────────────────────
   # admission-check — verdict. name = required check context
   # (repo ruleset 20303214 required_status_checks == ["admission-check"]),
   # 절대 불변.
@@ -114,12 +157,16 @@ jobs:
   # epoch N+4: verdict = admission ∧ mint-prepare (둘 다 success만
   # GREEN — SL-12 mint prepare 발화를 verdict에 결속; mint-prepare가
   # skipped/cancelled/failed면 required check red, fail-closed).
+  # epoch N+5: verdict = admission ∧ mint-prepare ∧ mint-publish (셋 다
+  # success만 GREEN — SL-04 [X]1~3 검증 발화를 verdict에 결속;
+  # mint-publish가 skipped/cancelled/failed면 required check red,
+  # fail-closed).
   # merge_group 이벤트는 pull_request 필드를 지니지 않아 callee가
   # fail-closed → verdict도 FAIL (구 엔진과 동일한 설계).
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [admission, mint-prepare]
+    needs: [admission, mint-prepare, mint-publish]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -128,6 +175,7 @@ jobs:
         env:
           RESULT_ADMISSION: ${{ needs.admission.result }}
           RESULT_MINT_PREPARE: ${{ needs.mint-prepare.result }}
+          RESULT_MINT_PUBLISH: ${{ needs.mint-publish.result }}
         run: |
           set -euo pipefail
           fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
@@ -135,4 +183,6 @@ jobs:
             || fail "needed job 'admission' result='$RESULT_ADMISSION' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_MINT_PREPARE" = "success" ] \
             || fail "needed job 'mint-prepare' result='$RESULT_MINT_PREPARE' (expected 'success' — skipped/cancelled/failed must block, never green)"
-          echo "[verdict] OK — admission ∧ mint-prepare callee succeeded"
+          [ "$RESULT_MINT_PUBLISH" = "success" ] \
+            || fail "needed job 'mint-publish' result='$RESULT_MINT_PUBLISH' (expected 'success' — skipped/cancelled/failed must block, never green)"
+          echo "[verdict] OK — admission ∧ mint-prepare ∧ mint-publish callee succeeded"
