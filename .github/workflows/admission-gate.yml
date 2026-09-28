@@ -1,17 +1,19 @@
 # ────────────────────────────────────────────────────────────────
 # admission-gate — Control Kernel (K). N+1 activation
 # (CI Quantization prefix construction — Bootstrap Authority 창의 ③,
-# 새 I-chain 형성).
+# 새 I-chain 형성). Epoch N+4 extension: mint-prepare 래퍼 신설
+# (SL-12 certificate mint prepare — certificate-mint.yml@N+4 main sha,
+# needs [admission]) + verdict needs [admission, mint-prepare] — verdict
+# = callee result 단일 판정의 확장 (둘 다 success만 GREEN, fail-closed).
 #
 # K = "GitHub가 이 epoch을 실행하게 하는 최소 제어 장치" (핸들만 —
 # semantic 엔진 코드 잔존 금지). semantic 실행 범위는 callee
-# (admission-check.yml@B) 내부의 Slice Engine 게이트가 운전한다:
-# manifest(config/policy/epoch_manifest.json @B) implementedSlices==
-# [SL-08]에서 scope_sl08 단계만 발화하고, 미정착 slice(SL-01/02/03/05/
-# 0713) 단계는 실행 목록에서 제외되어 NO-FIRE (I-3 — skip이 아니라
-# 미발화). verdict는 callee result 단일 판정 — callee 내부의 fail-closed
-# manifest 파싱 + SL-08 검증(build_sha==B + per-file sha 대조)이
-# N+1의 semantics다.
+# (admission-check.yml@B / certificate-mint.yml@B) 내부의 Slice Engine
+# 게이트가 운전한다: manifest(config/policy/epoch_manifest.json @B)
+# implementedSlices에서 구현 slice 단계만 발화하고, 미정착 slice 단계는
+# 실행 목록에서 제외되어 NO-FIRE (I-3 — skip이 아니라 미발화). verdict는
+# callee result 단일 판정 — callee 내부의 fail-closed manifest 파싱 +
+# 슬라이스 검증이 epoch의 semantics다.
 #
 # required check context = admission-check (JOB NAME) 불변 — 이 파일의
 # 존재 조건. org ruleset 24041674(axiom-admission-gate)의 workflows
@@ -29,8 +31,9 @@
 #   gateway         — runner-pool-acceptance H-code 전면 실행
 #   tree-identity   — testedTree==mergeTree 등식 (callee가 mergeTree
 #                     재유도 = 순수 중복)
-#   mint-prepare    — certificate-mint prepare (SL-0713 미정착)
-#   mint-publish    — certificate-mint publish (SL-0713 미정착)
+#   mint-prepare    — epoch N+4 (SL-12)에서 부활 (아래 mint-prepare
+#                     래퍼) — certificate-mint prepare read tier
+#   mint-publish    — certificate-mint publish (SL-0713 미정착 — 유지)
 # verdict 다단계(identity+qualification+certificate predicate)도 축소 —
 # K verdict = callee result 단일 판정 (fail-closed, "never green").
 #
@@ -70,18 +73,53 @@ jobs:
     uses: Archright/Axiom/.github/workflows/admission-check.yml@3573ea93ef5882d83d16febbf33e57fea6b22e1d
 
   # ──────────────────────────────────────────────────────────────
+  # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
+  # certificate-mint.yml@badbf620c8c7c7e157f0a61040c8376da0190759
+  # (PR #327 feat/epoch-n4-sl12 — N+4 main merge sha) stage=prepare
+  # (read tier — callee prepare job-level contents: read; publish는 N+4 K
+  # 에서 미호출 — SL-0713 미정착).
+  # needs: [admission] — callee prepare step (3)이 같은 run의
+  # admission-check-<PR> witness artifact를 run-scoped API로 소비
+  # (SL-03→SL-12 데이터 인과; 구 DAG 94a6f0864 freeze tag mint-prepare
+  # needs:[admission] 실측 재확인). job-level permissions = callee
+  # workflow_call top-level 선언과 정확히 일치 (grant < callee 선언 =
+  # 호출 그래프 전체 0-job startup_failure, 2026-09-26 실증):
+  # contents: write + actions: read + pull-requests: read. callee 내부
+  # [slice-engine] 게이트가 manifest@B implementedSlices로 (4)/(5)/(5b)
+  # 발화를 제한 (scope_sl12 — N+4 main: sl12=fire; 미정착 main =
+  # NO-FIRE, verdict fail-closed).
+  # ──────────────────────────────────────────────────────────────
+  mint-prepare:
+    needs: [admission]
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@badbf620c8c7c7e157f0a61040c8376da0190759
+    with:
+      stage: prepare
+      runId: ${{ github.run_id }}
+      runAttempt: ${{ github.run_attempt }}
+      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
+      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
+      prNumber: ${{ github.event.pull_request.number }}
+
+  # ──────────────────────────────────────────────────────────────
   # admission-check — verdict. name = required check context
   # (repo ruleset 20303214 required_status_checks == ["admission-check"]),
   # 절대 불변.
   # callee result 단일 판정: success만 GREEN, 그 외(skipped/cancelled/
   # failed)는 exit 1 fail-closed "never green" — 구 verdict 1단계 패턴
   # 재사용 (나머지 다단계 predicate는 미정착 slice 소관으로 제거).
+  # epoch N+4: verdict = admission ∧ mint-prepare (둘 다 success만
+  # GREEN — SL-12 mint prepare 발화를 verdict에 결속; mint-prepare가
+  # skipped/cancelled/failed면 required check red, fail-closed).
   # merge_group 이벤트는 pull_request 필드를 지니지 않아 callee가
   # fail-closed → verdict도 FAIL (구 엔진과 동일한 설계).
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [admission]
+    needs: [admission, mint-prepare]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -89,9 +127,12 @@ jobs:
       - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
         env:
           RESULT_ADMISSION: ${{ needs.admission.result }}
+          RESULT_MINT_PREPARE: ${{ needs.mint-prepare.result }}
         run: |
           set -euo pipefail
           fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
           [ "$RESULT_ADMISSION" = "success" ] \
             || fail "needed job 'admission' result='$RESULT_ADMISSION' (expected 'success' — skipped/cancelled/failed must block, never green)"
-          echo "[verdict] OK — admission callee succeeded"
+          [ "$RESULT_MINT_PREPARE" = "success" ] \
+            || fail "needed job 'mint-prepare' result='$RESULT_MINT_PREPARE' (expected 'success' — skipped/cancelled/failed must block, never green)"
+          echo "[verdict] OK — admission ∧ mint-prepare callee succeeded"
