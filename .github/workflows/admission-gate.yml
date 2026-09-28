@@ -91,11 +91,11 @@ jobs:
       actions: read
       pull-requests: read
       checks: write
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@c84b2cbbbcd34ef9186efac23b806bff53c6a034
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
-  # certificate-mint.yml@c84b2cbbbcd34ef9186efac23b806bff53c6a034 (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
+  # certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913 (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
   # (PR #329 feat/epoch-n5-sl04 — N+5 main merge sha, C5/C1 계약 개정:
   # prepare build-base-artifacts 소비) stage=prepare
   # (read tier — callee prepare job-level contents: read; publish는 N+4 K
@@ -117,7 +117,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c84b2cbbbcd34ef9186efac23b806bff53c6a034
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -151,7 +151,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c84b2cbbbcd34ef9186efac23b806bff53c6a034
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -176,7 +176,7 @@ jobs:
   gateway:
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@c84b2cbbbcd34ef9186efac23b806bff53c6a034
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
     with:
       target_sha: ${{ github.sha }}
       force_full: false
