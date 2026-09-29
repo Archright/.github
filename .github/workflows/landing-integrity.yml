@@ -170,14 +170,26 @@ jobs:
           set -euo pipefail
           fail() { echo "ATOMICITY: FAIL — $1 (fail-closed)" >&2; exit 1; }
 
-          # Fetch the PR diff to check which files were modified.
-          curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3.diff" \
-            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
-            -o /tmp/pr.diff
-
-          MODIFIED_WRITER_SET="$(grep -cE '^\+\+\+ b/config/trusted_writer_set.json' /tmp/pr.diff || true)"
-          MODIFIED_ADMISSION="$(grep -cE '^\+\+\+ b/.github/workflows/admission-check.yml' /tmp/pr.diff || true)"
+          if [ -n "$PR_NUMBER" ]; then
+            # pull_request: fetch the PR diff (server-derived).
+            curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3.diff" \
+              "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
+              -o /tmp/pr.diff
+            MODIFIED_WRITER_SET="$(grep -cE '^\+\+\+ b/config/trusted_writer_set.json' /tmp/pr.diff || true)"
+            MODIFIED_ADMISSION="$(grep -cE '^\+\+\+ b/.github/workflows/admission-check.yml' /tmp/pr.diff || true)"
+          else
+            # merge_group: no PR object (PR_NUMBER empty — E2E round-1 실측 404).
+            # changed set는 candidate 자체에서 유도: git diff base_sha..G (서버-유도 merge_group 페이로드).
+            BASE_SHA="${{ github.event.merge_group.base_sha }}"
+            [ -n "$BASE_SHA" ] || fail "merge_group.base_sha empty — cannot derive candidate diff (fail-closed)"
+            printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "merge_group.base_sha '$BASE_SHA' not 40-hex (fail-closed)"
+            CHANGED="$(git diff --name-only "$BASE_SHA" "${{ github.sha }}")" \
+              || fail "git diff base..candidate failed (fail-closed)"
+            MODIFIED_WRITER_SET="$(printf '%s\n' "$CHANGED" | grep -cx 'config/trusted_writer_set.json' || true)"
+            MODIFIED_ADMISSION="$(printf '%s\n' "$CHANGED" | grep -cx '.github/workflows/admission-check.yml' || true)"
+          fi
 
           # If either trusted_writer_set.json or admission-check.yml is modified,
           # both must be in the diff (atomicity).
