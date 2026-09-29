@@ -122,9 +122,9 @@ jobs:
       stage: prepare
       runId: ${{ github.run_id }}
       runAttempt: ${{ github.run_attempt }}
-      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
-      prNumber: ${{ github.event.pull_request.number }}
+      headSha: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+      baseSha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      prNumber: ${{ github.event.pull_request.number || '0' }}
 
   # ──────────────────────────────────────────────────────────────
   # mint-publish — certificate-mint callee 래퍼 (SL-04, epoch N+5 승격).
@@ -156,9 +156,9 @@ jobs:
       stage: publish
       runId: ${{ github.run_id }}
       runAttempt: ${{ github.run_attempt }}
-      headSha: ${{ github.event.pull_request.head.sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.sha }}
-      prNumber: ${{ github.event.pull_request.number }}
+      headSha: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+      baseSha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      prNumber: ${{ github.event.pull_request.number || '0' }}
 
   # ──────────────────────────────────────────────────────────────
 # gateway — runner-pool-acceptance callee 래퍼 (SL-10, epoch N+6
@@ -199,8 +199,11 @@ jobs:
   # gateway (넷 다 success만 GREEN — SL-10 decision envelope 발화 +
   # gateway lane 결과를 verdict에 결속; gateway가 skipped/cancelled/
   # failed면 required check red, fail-closed).
-  # merge_group 이벤트는 pull_request 필드를 지니지 않아 callee가
-  # fail-closed → verdict도 FAIL (구 엔진과 동일한 설계).
+  # merge_group 바인딩 (ADR-0026 — execution-authority-unification, P1):
+  # 래퍼는 headSha/baseSha를 merge_group.head_sha/base_sha로 전파하고
+  # prNumber=0 (명시적 honest "no PR context" 값 — head_ref 파싱 금지)을
+  # 전달한다. pull_request 경로는 기존 표현식과 byte 동일 (PR-path
+  # neutral). callee-side merge_group 지원은 Archright/Axiom에서 착지.
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
