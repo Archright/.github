@@ -91,11 +91,11 @@ jobs:
       actions: read
       pull-requests: read
       checks: write
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@2b06634920437872aee9d12b2852677a75b65dfe
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
-  # certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913 (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
+  # certificate-mint.yml@2b06634920437872aee9d12b2852677a75b65dfe (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
   # (PR #329 feat/epoch-n5-sl04 — N+5 main merge sha, C5/C1 계약 개정:
   # prepare build-base-artifacts 소비) stage=prepare
   # (read tier — callee prepare job-level contents: read; publish는 N+4 K
@@ -117,7 +117,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@2b06634920437872aee9d12b2852677a75b65dfe
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -151,7 +151,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@2b06634920437872aee9d12b2852677a75b65dfe
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -176,7 +176,7 @@ jobs:
   gateway:
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@9021a9a0c25d4cbd187a3cb071864fc09ca4f913
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@2b06634920437872aee9d12b2852677a75b65dfe
     with:
       target_sha: ${{ github.sha }}
       force_full: false
@@ -199,11 +199,14 @@ jobs:
   # gateway (넷 다 success만 GREEN — SL-10 decision envelope 발화 +
   # gateway lane 결과를 verdict에 결속; gateway가 skipped/cancelled/
   # failed면 required check red, fail-closed).
-  # merge_group 바인딩 (ADR-0026 — execution-authority-unification, P1):
+  # merge_group 바인딩 (ADR-0027 queue-delegation, P1 — ADR-0026 인용 정정):
   # 래퍼는 headSha/baseSha를 merge_group.head_sha/base_sha로 전파하고
   # prNumber=0 (명시적 honest "no PR context" 값 — head_ref 파싱 금지)을
   # 전달한다. pull_request 경로는 기존 표현식과 byte 동일 (PR-path
-  # neutral). callee-side merge_group 지원은 Archright/Axiom에서 착지.
+  # neutral). callee-side merge_group 지원이 Archright/Axiom main에 착지
+  # (#353 admission-binding · #354 mint-binding, α subject = (B, G^2);
+  # evidence docs/evidence/merge_queue_probe_2026-09-29.md) — 본 핀을
+  # 그 SHA로 상승시켜 신규 callee를 활성화한다 (atomic binding cutover).
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
