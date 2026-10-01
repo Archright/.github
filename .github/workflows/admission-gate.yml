@@ -91,7 +91,7 @@ jobs:
       actions: read
       pull-requests: read
       checks: write
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@20aa15873f6c9d27a91a1b77829471ae0ce4af72
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@08777eeb9ccf59f8f59d1540e6b3e77987e64e7a
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
