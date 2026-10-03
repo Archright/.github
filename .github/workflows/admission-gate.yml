@@ -113,6 +113,22 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   mint-prepare:
     needs: [admission]
+    # Tolerate an upstream admission FAILURE, never survive cancellation.
+    # `needs:` is kept because this callee genuinely consumes two artifacts the
+    # `admission` call produces — `admission-check-base-artifacts` and the
+    # `admission-check-<candidate head>` witness — fetched over the run-scoped
+    # REST API with no poll/retry, so dropping the edge would race the producers
+    # and fail-closed nondeterministically. `needs:` also supplies the ordering
+    # guarantee those single-shot fetches rely on. What is wrong is the
+    # failure-propagation half: certificate minting is an evidence authority
+    # (`signWitness(witness)` — the witness is its sole input, and the witness is
+    # produced *before* the admission predicate and uploaded with `if: always()`),
+    # so requiring admission to have SUCCEEDED inverts the causality and starves
+    # the very certificate the predicate demands (NO_CERT).
+    # fail-closed is preserved: the verdict job still requires all four jobs to be
+    # `success`, and it still runs `if: always()`. Convergence is two-pass —
+    # this run mints and publishes, the next run's predicate finds the ledger cert.
+    if: ${{ !cancelled() }}
     permissions:
       contents: write
       actions: read
@@ -147,6 +163,10 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   mint-publish:
     needs: [mint-prepare]
+    # Same rationale as mint-prepare: the certificate must reach the ledger even
+    # when this run's admission denied, otherwise the next run's predicate still
+    # sees NO_CERT. Without this the chain stops at prepare and never converges.
+    if: ${{ !cancelled() }}
     permissions:
       contents: write
       actions: read
