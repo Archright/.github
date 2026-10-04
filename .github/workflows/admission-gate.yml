@@ -196,7 +196,7 @@ jobs:
   gateway:
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@48cb16ab2fcc78011f178ed7388cde64046e4d75
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@7b14e5c63ac9515c1d9f81da5e9917043df37c1a
     with:
       target_sha: ${{ github.sha }}
       force_full: false
