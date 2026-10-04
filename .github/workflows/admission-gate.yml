@@ -21,6 +21,25 @@
 # + libpcre3 패리티 prepare·publish). N+5는 복구 E의 acceptance green
 # 까지 미완·전이 상태.
 #
+# Epoch N+7 (2026-10-05) — CONTROL DAG executes the TRUST ORDER.
+# admission-check.yml은 이제 한 호출로 witness 생성과 predicate 평가를
+# 양쪽 다 하지 않는다: 호출자가 그 파일을 두 번 호출하고, 순서는 이 파일의
+# `needs:` 그래프가 선언한다. 이전 shape에서는 witness 생성과 predicate
+# 평가가 한 호출 안에 있어서 predicate가 mint publish보다 먼저 도는 것이
+# 구조적으로 강제되었고, predicate가 요구하는 certificate는 그 시점에
+# 존재할 수 없어서 매 run 1차 attempt 가 NO_CERT로 막혔다.
+#   attest  → B build · B/H identity 재도출 · D9 staging · subject register
+#             · witness (`cert attest --witness-only`) ·
+#             `admission-check-<head>-<attempt>` 업로드
+#   mint-prepare / mint-publish → witness 를 소비해 subject-certificate 를
+#             서명·ledger 에 append (soft edge 유지 — 아래 rationale 참조)
+#   verdict → derived-closure + `subject-certificate-<attempt>` soft
+#             download (ADR-0022 §D5-3 `--cert` handoff) ·
+#             `ax merge --dry-run --json` — 이 stage 의 exit 이 verdict
+# aggregate = attest ∧ mint-prepare ∧ mint-publish ∧ gateway ∧ verdict
+#             (다섯 success 만 GREEN — 어느 하나도 약화되지 않는다).
+# aggregate 는 callee result 단일 판정 — fail-closed, "never green".
+#
 # K = "GitHub가 이 epoch을 실행하게 하는 최소 제어 장치" (핸들만 —
 # semantic 엔진 코드 잔존 금지). semantic 실행 범위는 callee
 # (admission-check.yml@B / certificate-mint.yml@B) 내부의 Slice Engine
@@ -75,23 +94,29 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # admission — callee 래퍼 (구 DAG의 admission 래퍼 패턴 재사용).
-  # B-pinned definition: workflow_call: {} — callee가 전파된
-  # pull_request caller context에서 B/H/PR 사실을 전부 유도한다
-  # (inputs/secrets 없음 — 전달 없음). 실행 job은 callee 내부에 있으며
-  # slice-engine 게이트로 범위 제한된다.
+  # attest — admission-check callee 래퍼, STAGE 1/2 (witness 생산).
+  # B-pinned definition: workflow_call: { stage } — stage는 required
+  # string 이고 'attest' | 'verdict' 두 값만 수락한다. 그 외 값(또는
+  # 누락)은 두 job 모두 skipped → aggregate 가 skipped 를 FAILURE 로
+  # 전환 (fail-closed "never green"). callee는 caller 의 pull_request /
+  # merge_group 컨텍스트를 상속하므로 B/H/PR 사실을 전부 스스로 유도한다
+  # (runId/runAttempt/headSha/baseSha/prNumber 같은 입력이 없다 — callee
+  # 는 github.run_attempt 등 상속 컨텍스트를 직접 읽는다).
   # job-level permissions = callee(admission-check.yml) top-level 선언과
-  # 정확히 일치 (grant < callee 선언이면 호출 그래프 전체가 계획 단계에서
-  # 거부되어 0-job startup_failure — 2026-09-26 첫 런 실증). callee의
-  # landing-trigger Check Run POST가 checks: write를 사용한다.
+  # 정확히 일치 (contents: read + pull-requests: read). grant < callee
+  # 선언이면 호출 그래프 전체가 계획 단계에서 거부되어 0-job
+  # startup_failure — 2026-09-26 첫 런 실증.
+  # needs: 없음 — trust order의 첫 절반. witness 는 `if: always()` 로
+  # 업로드되므로 attest 내부의 실패가 일어나도 mint 는 서명할 수 있다
+  # (그래서 아래 mint-prepare 의 soft edge 가 성립한다).
   # ──────────────────────────────────────────────────────────────
-  admission:
+  attest:
     permissions:
       contents: read
-      actions: read
       pull-requests: read
-      checks: write
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@87df2df5d997cdd15a9c72dbc5db8d87ba53e417
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@410b56da9b16a76d599c9776adf73c88850e0e0b
+    with:
+      stage: attest
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
@@ -100,7 +125,7 @@ jobs:
   # prepare build-base-artifacts 소비) stage=prepare
   # (read tier — callee prepare job-level contents: read; publish는 N+4 K
   # 에서 미호출 — SL-0713 미정착).
-  # needs: [admission] — callee prepare step (3)이 같은 run의
+  # needs: [attest] — callee prepare step (3)이 같은 run의
   # admission-check-<PR> witness artifact를 run-scoped API로 소비
   # (SL-03→SL-12 데이터 인과; 구 DAG 94a6f0864 freeze tag mint-prepare
   # needs:[admission] 실측 재확인). job-level permissions = callee
@@ -112,22 +137,22 @@ jobs:
   # NO-FIRE, verdict fail-closed).
   # ──────────────────────────────────────────────────────────────
   mint-prepare:
-    needs: [admission]
-    # Tolerate an upstream admission FAILURE, never survive cancellation.
+    needs: [attest]
+    # Tolerate an upstream attestation FAILURE, never survive cancellation.
     # `needs:` is kept because this callee genuinely consumes two artifacts the
-    # `admission` call produces — `admission-check-base-artifacts` and the
+    # `attest` call produces — `admission-check-base-artifacts` and the
     # `admission-check-<candidate head>` witness — fetched over the run-scoped
     # REST API with no poll/retry, so dropping the edge would race the producers
     # and fail-closed nondeterministically. `needs:` also supplies the ordering
     # guarantee those single-shot fetches rely on. What is wrong is the
     # failure-propagation half: certificate minting is an evidence authority
     # (`signWitness(witness)` — the witness is its sole input, and the witness is
-    # produced *before* the admission predicate and uploaded with `if: always()`),
-    # so requiring admission to have SUCCEEDED inverts the causality and starves
+    # produced *before* the verdict predicate and uploaded with `if: always()`),
+    # so requiring attest to have SUCCEEDED inverts the causality and starves
     # the very certificate the predicate demands (NO_CERT).
-    # fail-closed is preserved: the verdict job still requires all four jobs to be
+    # fail-closed is preserved: the aggregate still requires all five jobs to be
     # `success`, and it still runs `if: always()`. Convergence is two-pass —
-    # this run mints and publishes, the next run's predicate finds the ledger cert.
+    # this run mints and publishes, the next run's verdict finds the ledger cert.
     if: ${{ !cancelled() }}
     permissions:
       contents: write
@@ -164,7 +189,7 @@ jobs:
   mint-publish:
     needs: [mint-prepare]
     # Same rationale as mint-prepare: the certificate must reach the ledger even
-    # when this run's admission denied, otherwise the next run's predicate still
+    # when this run's verdict denies, otherwise the next run's predicate still
     # sees NO_CERT. Without this the chain stops at prepare and never converges.
     if: ${{ !cancelled() }}
     permissions:
@@ -202,6 +227,32 @@ jobs:
       force_full: false
 
   # ──────────────────────────────────────────────────────────────
+  # verdict — admission-check callee 래퍼, STAGE 2/2 (certificate 소비).
+  # 같은 핀의 같은 파일을 다시 호출하되 stage 만 verdict. 이 호출의
+  # exit 이 required check 이 소비하는 판정이다 (callee 내부의
+  # `ax merge --dry-run --json`).
+  # needs: [mint-publish] — trust order의 끝. callee 안의
+  # `subject-certificate-<run_attempt>` soft download 가 이 에지가
+  # 없이는 아직 publish 되지 않은 artifact 를 찾게 되고, 그 부재는
+  # ADR-0022 §D5-3 의 bootstrap 경로(ledger 스캔)로 조용히 폴백하여
+  # NO_CERT 를 재현한다. callee 안의
+  # `admission-check-base-artifacts` download + `build_sha == B` 검증이
+  # attest stage 의 B 빌드와 같은 run 안에서 결속되는 것을 보장한다.
+  # if: 기본 success() — mint-publish 가 실패하면 verdict 는 skipped 가
+  # 되고 aggregate 가 그 skipped 를 FAILURE 로 바꾼다 (약화 아님).
+  # job-level permissions = callee top-level 선언과 동일
+  # (contents: read + pull-requests: read) — attest 래퍼와 동일 셋.
+  # ──────────────────────────────────────────────────────────────
+  verdict:
+    needs: [mint-publish]
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@410b56da9b16a76d599c9776adf73c88850e0e0b
+    with:
+      stage: verdict
+
+  # ──────────────────────────────────────────────────────────────
   # admission-check — verdict. name = required check context
   # (repo ruleset 20303214 required_status_checks == ["admission-check"]),
   # 절대 불변.
@@ -219,6 +270,10 @@ jobs:
   # gateway (넷 다 success만 GREEN — SL-10 decision envelope 발화 +
   # gateway lane 결과를 verdict에 결속; gateway가 skipped/cancelled/
   # failed면 required check red, fail-closed).
+  # epoch N+7: verdict = attest ∧ mint-prepare ∧ mint-publish ∧ gateway
+  # ∧ verdict-callee (다섯 success만 GREEN). certificate 는 여전히
+  # GREEN 의 필수 조건이다 — verdict-callee job 이 바로 그것을
+  # 평가하므로, 이 MUST 의 교체는 이름 변경이 아니라 호출 분할이다.
   # merge_group 바인딩 (ADR-0027 queue-delegation, P1 — ADR-0026 인용 정정):
   # 래퍼는 headSha/baseSha를 merge_group.head_sha/base_sha로 전파하고
   # prNumber=0 (명시적 honest "no PR context" 값 — head_ref 파싱 금지)을
@@ -230,26 +285,29 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   admission-check:
     name: admission-check
-    needs: [admission, mint-prepare, mint-publish, gateway]
+    needs: [attest, mint-prepare, mint-publish, gateway, verdict]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
         env:
-          RESULT_ADMISSION: ${{ needs.admission.result }}
+          RESULT_ATTEST: ${{ needs.attest.result }}
           RESULT_MINT_PREPARE: ${{ needs.mint-prepare.result }}
           RESULT_MINT_PUBLISH: ${{ needs.mint-publish.result }}
           RESULT_GATEWAY: ${{ needs.gateway.result }}
+          RESULT_VERDICT: ${{ needs.verdict.result }}
         run: |
           set -euo pipefail
           fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
-          [ "$RESULT_ADMISSION" = "success" ] \
-            || fail "needed job 'admission' result='$RESULT_ADMISSION' (expected 'success' — skipped/cancelled/failed must block, never green)"
+          [ "$RESULT_ATTEST" = "success" ] \
+            || fail "needed job 'attest' result='$RESULT_ATTEST' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_MINT_PREPARE" = "success" ] \
             || fail "needed job 'mint-prepare' result='$RESULT_MINT_PREPARE' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_MINT_PUBLISH" = "success" ] \
             || fail "needed job 'mint-publish' result='$RESULT_MINT_PUBLISH' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_GATEWAY" = "success" ] \
             || fail "needed job 'gateway' result='$RESULT_GATEWAY' (expected 'success' — skipped/cancelled/failed must block, never green)"
-          echo "[verdict] OK — admission ∧ mint-prepare ∧ mint-publish ∧ gateway callee succeeded"
+          [ "$RESULT_VERDICT" = "success" ] \
+            || fail "needed job 'verdict' result='$RESULT_VERDICT' (expected 'success' — skipped/cancelled/failed must block, never green)"
+          echo "[verdict] OK — attest ∧ mint-prepare ∧ mint-publish ∧ gateway ∧ verdict callee succeeded"
