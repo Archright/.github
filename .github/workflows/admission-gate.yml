@@ -106,7 +106,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@22ae6bd3ce4c4f2f39b2a27fde514d09cb043f2c
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9924997de9d24305ce45b219dd747ff3838bdf8d
     with:
       stage: attest
 
@@ -156,7 +156,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@22ae6bd3ce4c4f2f39b2a27fde514d09cb043f2c
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9924997de9d24305ce45b219dd747ff3838bdf8d
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -194,7 +194,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@22ae6bd3ce4c4f2f39b2a27fde514d09cb043f2c
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9924997de9d24305ce45b219dd747ff3838bdf8d
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -282,7 +282,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@22ae6bd3ce4c4f2f39b2a27fde514d09cb043f2c
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9924997de9d24305ce45b219dd747ff3838bdf8d
     with:
       stage: verdict
 
