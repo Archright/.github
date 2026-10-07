@@ -21,6 +21,19 @@
 #   1. trust-surface-codeowners — CODEOWNERS coverage of trust-surface paths
 #   2. trusted-writer-set-pairing — atomic pair invariant for writer set
 #   3. merge-admission-sanity — admission policy cannot be vacated
+#
+# Honest-gate posture (anti-theater, §0.9): this definition executes in the
+# TARGET repo (github.repository = target), where the mirror inputs
+# (config/policy/merge_admission.json, config/trusted_writer_set.json,
+# .github/CODEOWNERS) are expected to exist — and the fail-closed scripts
+# below still FAIL if they are absent there (deleting a required input is a
+# genuine integrity violation, not a skip). The ONE repo where the inputs
+# structurally cannot exist is Archright/.github itself (workflow
+# definitions only); there each job self-skips via its job-level `if:` so
+# the check conclusion is "Skipped" instead of a baseless always-red FAIL,
+# and the job name carries the reason ("Skipped — mirror inputs absent").
+# Job-level `if:` is the single gate: no path turns a present-and-invalid
+# input into a pass, and every FAIL verdict reachable today stays reachable.
 
 name: landing-integrity
 
@@ -49,6 +62,12 @@ jobs:
   # + AGENTS.md + .github/** (all .github paths).
   # ──────────────────────────────────────────────────────────────
   trust-surface-codeowners:
+    # SKIPPED — mirror inputs absent in this repo: this job needs the BASE
+    # tree to carry merge_admission.json (trust-surface source) and
+    # .github/CODEOWNERS; neither exists in the Archright/.github tree.
+    # Display name only — the check-run id stays the job id above.
+    name: trust-surface-codeowners${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
+    if: github.repository != 'Archright/.github'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -127,6 +146,12 @@ jobs:
   # head is what we are reviewing.
   # ──────────────────────────────────────────────────────────────
   trusted-writer-set-pairing:
+    # SKIPPED — mirror inputs absent in this repo: the pairing invariant
+    # needs config/trusted_writer_set.json (trustedAdmissionWorkflowSha) in
+    # the head tree; it does not exist in the Archright/.github tree.
+    # Display name only — the check-run id stays the job id above.
+    name: trusted-writer-set-pairing${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
+    if: github.repository != 'Archright/.github'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -215,6 +240,12 @@ jobs:
   # vacating = fail.
   # ──────────────────────────────────────────────────────────────
   merge-admission-sanity:
+    # SKIPPED — mirror inputs absent in this repo: the shape check needs
+    # config/policy/merge_admission.json in the head tree; it does not exist
+    # in the Archright/.github tree.
+    # Display name only — the check-run id stays the job id above.
+    name: merge-admission-sanity${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
+    if: github.repository != 'Archright/.github'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
