@@ -106,7 +106,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@90795baa7f0a6a5a6856828fb05ef145159e4636
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@14960663086f05348800f5b78cf4370688b34b31
     with:
       stage: attest
 
@@ -282,7 +282,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@90795baa7f0a6a5a6856828fb05ef145159e4636
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@14960663086f05348800f5b78cf4370688b34b31
     with:
       stage: verdict
 
