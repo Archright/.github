@@ -22,8 +22,11 @@
 # 까지 미완·전이 상태.
 # STAGE-SPLIT cutover: 단일 `admission` job이 witness 산출과 MergeAdmissible
 # 판정을 겸하던 것을 두 stage 호출로 분리한다 —
-#   attest(stage: attest) ─> mint-prepare ─> mint-publish ─> verdict(stage: verdict)
-#   gateway(독립 레인)
+#   attest(stage: attest) ─> mint-prepare ────────────────┐
+#   gateway(독립 레인) ───────────────────────────────────┴─> mint-publish ─> verdict(stage: verdict)
+#     (mint-publish needs [mint-prepare, gateway] — gateway lane이
+#      terminal이 된 뒤 publish가 평가한다. 2026-10-07 run
+#      37569755722 att.1 레이스 복원 — 아래 mint-publish 주석)
 #   └─────────────── 다섯 job 모두 success ───────────────> admission-check (aggregate)
 # 분리 근거: `admission`이 predicate까지 수행하면 predicate가 cert를 읽는
 # 시점이 mint-publish보다 앞서서 attempt 1이 NO_CERT로 닫히고 무조건 2차
@@ -171,12 +174,31 @@ jobs:
   # N+5 main merge sha) stage=publish (write tier — THE single
   # contents: write grant in the gate; callee publish job-level
   # contents: write).
-  # needs: [mint-prepare] — publish는 같은 run의
-  # subject-certificate-<run_attempt> artifact를 run-scoped API로 소비
-  # (SL-12→SL-04 데이터 인과; 구 DAG 94a6f0864 freeze tag mint-publish
-  # needs:[mint-prepare, gateway, tree-identity]에서 gateway/tree-identity
-  # 미정착 제외 실측 — publish callee는 admission artifact를 소비하지
-  # 않으므로 [admission] 에지 불필요, DAG 폐쇄는 mint-prepare가 보장).
+  # needs: [mint-prepare, gateway] — publish는 같은 run의
+  # subject-certificate-<run_attempt> artifact를 run-scoped API로 소비하고
+  # (SL-12→SL-04 데이터 인과), SL-0713 승격 이후 gateway lane의 결론을
+  # 직접 평가한다 — callee (P5) tested-tree-digest artifact 소비 + (P6)
+  # jobs API lane conclusion 집계. needs는 선행 job(호출 job 포함 — 호출
+  # job은 callee workflow 완료에 완료)의 완료를 보장하므로(GitHub Actions
+  # 공식: jobs.<job_id>.needs = "any jobs that must complete successfully
+  # before this job will run"), "평가 대상 lane이 terminal 상태가 된 뒤에
+  # 평가"가 그래프로 선언된다 — 타이밍/폴링 회피가 아닌 의존관계 선언.
+  # gateway 간선 복원 배경(실측 run 37569755722 attempt 1, 2026-10-07):
+  # 구 DAG 94a6f0864 freeze tag mint-publish
+  # needs:[mint-prepare, gateway, tree-identity]에서 N+5 재등록 때
+  # gateway/tree-identity가 제외되었으나 — 당시에는 P5/P6가 NO-FIRE라
+  # 무해 — N+6 gateway 래퍼 부활 + SL-0713 승격으로 P5/P6가 발화하면서
+  # 간선 부재가 레이스가 되었다: mint-publish가 gateway/ci-bootstrap
+  # 완료(04:11:18Z) 전에 jobs API 평가(04:10:10Z)를 수행, in-progress
+  # job을 "abnormal conclusion"으로 fail-closed (MINT_PUB_JOBS FAIL) →
+  # 오검증 red → 런 전체 재실행에서만 green. [admission] 에지는 계속
+  # 불필요 — publish callee는 admission artifact를 소비하지 않고 DAG
+  # 폐쇄는 mint-prepare가 보장. gateway 실패/스킵 시에도 본 job은
+  # if: !cancelled()로 실행을 계속한다(needed job 실패·스킵 시 조건식이
+  # 있는 job은 계속 실행 — 공식 "unless the jobs use a conditional
+  # expression that causes the job to continue") → callee (P6)가 lane의
+  # 실제 결론을 fail-closed로 보고하고, 최종 admission-check aggregate가
+  # RESULT_GATEWAY로 독립 차단한다(never green).
   # job-level permissions = callee workflow_call top-level 선언과 정확히
   # 일치 (contents: write + actions: read + pull-requests: read —
   # mint-prepare 래퍼와 동일 셋). callee 내부 [slice-engine] 게이트가
@@ -185,7 +207,7 @@ jobs:
   # skip 실측은 acceptance 기록).
   # ──────────────────────────────────────────────────────────────
   mint-publish:
-    needs: [mint-prepare]
+    needs: [mint-prepare, gateway]
     # Same rationale as mint-prepare: the certificate must reach the ledger even
     # when this run's attest stage denied, otherwise the verdict predicate still
     # sees NO_CERT. Without this the chain stops at prepare and never converges.
