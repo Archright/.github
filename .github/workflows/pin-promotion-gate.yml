@@ -171,7 +171,8 @@ jobs:
             "$API/contents/config/policy/epoch_manifest.json?ref=main" \
             -o /tmp/epoch_manifest.json \
             || fail "cannot read epoch_manifest.json @main (fail-closed)"
-          PROMOTED="$(jq -r '.productionExecutionPin' /tmp/epoch_manifest.json)"
+          PROMOTED="$(jq -r '.content' /tmp/epoch_manifest.json | base64 -d \
+            | jq -r '.productionExecutionPin')"
           printf '%s' "$PROMOTED" | grep -qE '^[0-9a-f]{40}$' \
             || fail "productionExecutionPin='$PROMOTED' is not 40-hex (fail-closed)"
           curl -fsS -H "$AUTH" \
@@ -180,7 +181,8 @@ jobs:
             || fail "cannot read trusted_writer_set.json @main (fail-closed)"
           # The writer set carries full-line // doc comments — strip before jq
           # (same convention as landing-integrity / verify_trusted_writer_set.sh).
-          TWS="$(sed -E 's|^[[:space:]]*//.*$||' /tmp/trusted_writer_set.json \
+          TWS="$(jq -r '.content' /tmp/trusted_writer_set.json | base64 -d \
+            | sed -E 's|^[[:space:]]*//.*$||' \
             | jq -r '.trustedAdmissionWorkflowSha')"
           printf '%s' "$TWS" | grep -qE '^[0-9a-f]{40}$' \
             || fail "trustedAdmissionWorkflowSha='$TWS' is not 40-hex (fail-closed)"
