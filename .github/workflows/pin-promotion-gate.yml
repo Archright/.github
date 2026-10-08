@@ -1,0 +1,205 @@
+# ────────────────────────────────────────────────────────────────
+# pin-promotion-gate — DEBT#473 monotonic epoch→pin promotion gate.
+#
+# Incident (Archright/Axiom docs/evidence/n7_runtime_investigation_terminal_
+# 2026-10-01.md, 28-minute window): Dependabot rotates the five callee pins
+# in admission-gate.yml independently of Axiom-side epoch promotion, so a
+# "new pin + old epoch" or "new epoch + un-promoted pin" window could land
+# on main and block acceptance. This check closes that window at the only
+# surface where pins change: PRs against Archright/.github.
+#
+# State machine (monotonic, each state machine-checked before the next):
+#   PREPARED — Axiom main epoch authority is coherent (G2a):
+#       config/policy/epoch_manifest.json productionExecutionPin
+#       == config/trusted_writer_set.json trustedAdmissionWorkflowSha
+#       (both are the git BLOB sha of admission-check.yml — content-
+#       addressed promotion identity, ADR-0022 §5).
+#   PINNED   — every Axiom callee pin changed by this PR resolves, AT that
+#       pin commit, to admission-check.yml's promoted blob sha. Enforced
+#       HERE (this job). Mismatch = "pin is not an epoch-promoted SHA".
+#   PROMOTED — after the rotation lands, admission-gate runs green and the
+#       required check `admission-check` reports success (GitHub-native
+#       observation; org ruleset axiom-admission-gate feeds the Axiom
+#       repo ruleset that consumes it).
+# A pin can therefore only land when it already sits inside the promoted
+# epoch: promotion cannot be bypassed, only blocked (fail-closed). Wrong
+# epoch activation has no reachable path.
+#
+# Cross-repo read path (honest limitation): Archright/Axiom is PRIVATE and
+# this repo holds zero Actions secrets. The only Axiom-scoped credential
+# that exists is the Dependabot secret AXIOM_READONLY_TOKEN
+# (.github/dependabot.yml registry `github-axiom`), which the platform
+# exposes to Actions exclusively on dependabot[bot]-authored PRs. Hence:
+#   - dependabot[bot] pin PRs  → full content-addressed verification.
+#   - any other actor changing a pin → fail-closed (no verifiable read
+#     path; a human rotation must go through a Dependabot rotation or the
+#     architect must explicitly provision an Actions-visible token — an
+#     authority decision, deliberately not assumed here).
+# The token value is never logged: it is passed only as a curl header,
+# all curl calls are `-fsS` silent, and failures print responses, never
+# the authorization value.
+#
+# Judgment scope: ADDED/CHANGED `uses:` lines referencing
+# Archright/Axiom/.github/workflows/*.yml. Added lines must carry a 40-hex
+# commit pin (branch/tag refs = fail-closed). REMOVED callee lines are not
+# a pin rotation and are out of scope (callee-set changes are governed by
+# the epoch cutover process, not Dependabot rotation).
+#
+# Judgment inputs are never trusted from the PR tree: the diff is
+# server-derived (PR diff API), the promoted state is read from Axiom
+# main's epoch authority at runtime. No input can turn a present-and-
+# invalid pin into a pass; every unreachable input fails closed.
+#
+# Merge admission: repo ruleset on Archright/.github requires check
+# `pin-promotion-gate (DEBT#473)` (exact job name below) with no bypass
+# actors. This workflow triggers on every PR and every merge_group
+# candidate so the required check always reports (a skipped check must
+# never silently satisfy nothing — it would hang the queue instead).
+# ────────────────────────────────────────────────────────────────
+name: pin-promotion-gate
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pin-promotion-gate:
+    name: "pin-promotion-gate (DEBT#473)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "[promotion] Checkout (candidate tree for merge_group diffs)"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # ────────────────────────────────────────────────────────────
+      # Step 1 — derive the set of Axiom callee pins this PR changes.
+      # Server-derived diff for pull_request (same channel as
+      # landing-integrity job 2); git diff base..candidate for
+      # merge_group (no PR object exists on that event).
+      # Outputs: /tmp/promoted_pins.txt (distinct 40-hex pins),
+      #          UNPINNED_COUNT (Axiom uses: lines lacking a 40-hex pin).
+      # ────────────────────────────────────────────────────────────
+      - name: "[promotion] Classify diff — changed Axiom callee pins"
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          fail() { echo "PIN_PROMOTION: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          if [ -n "$PR_NUMBER" ]; then
+            curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3.diff" \
+              "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
+              -o /tmp/pr.diff \
+              || fail "cannot fetch server-derived PR diff (fail-closed)"
+          else
+            BASE_SHA="${{ github.event.merge_group.base_sha }}"
+            [ -n "$BASE_SHA" ] || fail "merge_group.base_sha empty — cannot derive candidate diff (fail-closed)"
+            printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "merge_group.base_sha not 40-hex (fail-closed)"
+            git diff --unified=0 "$BASE_SHA" "${{ github.sha }}" > /tmp/pr.diff \
+              || fail "git diff base..candidate failed (fail-closed)"
+          fi
+
+          # Changed (added/modified) Axiom reusable-workflow pins → distinct shas.
+          grep -E '^\+' /tmp/pr.diff \
+            | grep -oE 'uses:[[:space:]]*"?Archright/Axiom/\.github/workflows/[A-Za-z0-9._/-]+\.yml@[0-9a-fA-F]{40}' \
+            | sed -E 's/.*@//' | sort -u > /tmp/promoted_pins.txt || true
+          # Axiom callee lines WITHOUT a 40-hex commit pin → fail-closed material.
+          grep -E '^\+' /tmp/pr.diff \
+            | grep -E 'uses:[[:space:]]*"?Archright/Axiom/\.github/workflows/' \
+            | grep -vE 'uses:[[:space:]]*"?Archright/Axiom/\.github/workflows/[A-Za-z0-9._/-]+\.yml@[0-9a-fA-F]{40}' \
+            > /tmp/unpinned.txt || true
+
+          echo "changed Axiom pins: $(wc -l < /tmp/promoted_pins.txt) distinct commit(s):"
+          cat /tmp/promoted_pins.txt || true
+          UNPINNED_COUNT="$(wc -l < /tmp/unpinned.txt)"
+          echo "Axiom callee lines changed without a 40-hex pin: $UNPINNED_COUNT"
+          echo "UNPINNED_COUNT=$UNPINNED_COUNT" >> "$GITHUB_ENV"
+
+      # ────────────────────────────────────────────────────────────
+      # Step 2 — the promotion judgment (fail-closed, never green on
+      # doubt):
+      #   no pin changed            → n/a pass (boundary untouched)
+      #   unpinned Axiom ref added  → FAIL
+      #   actor != dependabot[bot]  → FAIL (no verifiable read path)
+      #   token unavailable         → FAIL
+      #   manifest pin != TWS sha   → FAIL (PREPARED unmet — epoch
+      #                                authority mid-transition)
+      #   pin's admission-check blob != promoted blob → FAIL
+      #                                ("pin is not an epoch-promoted SHA")
+      # ────────────────────────────────────────────────────────────
+      - name: "[promotion] Verify changed pins are epoch-promoted (fail-closed)"
+        env:
+          ACTOR: ${{ github.actor }}
+          AXIOM_READONLY_TOKEN: ${{ secrets.AXIOM_READONLY_TOKEN }}
+        run: |
+          set -euo pipefail
+          fail() { echo "PIN_PROMOTION: FAIL — $1 (fail-closed)" >&2; exit 1; }
+
+          if [ ! -s /tmp/promoted_pins.txt ] && [ "${UNPINNED_COUNT:-0}" -eq 0 ]; then
+            echo "PIN_PROMOTION: n/a — no Archright/Axiom callee pin changed by this PR (PINNED not exercised; admission boundary untouched)"
+            exit 0
+          fi
+
+          [ "${UNPINNED_COUNT:-0}" -eq 0 ] \
+            || fail "Axiom callee ref added/changed without a 40-hex commit pin (fail-closed)"
+
+          # Read path: private Axiom is readable at runtime only through the
+          # Dependabot-scoped AXIOM_READONLY_TOKEN, which the platform exposes
+          # solely on dependabot[bot]-authored PRs. Any other actor editing a
+          # pin has no verifiable read path → fail-closed by design.
+          [ "$ACTOR" = "dependabot[bot]" ] \
+            || fail "pin rotation outside Dependabot (actor='$ACTOR'): the only Axiom read credential is Dependabot-secret-scoped, so this change cannot be verified against epoch promotion — rotate via Dependabot, or have the architect provision an Actions-visible token (fail-closed; DEBT#473)"
+          [ -n "$AXIOM_READONLY_TOKEN" ] \
+            || fail "AXIOM_READONLY_TOKEN unavailable in Actions context (expected only on dependabot[bot] PRs — fail-closed)"
+          AUTH="Authorization: Bearer $AXIOM_READONLY_TOKEN"
+          API="https://api.github.com/repos/Archright/Axiom"
+
+          # PREPARED — Axiom main's epoch authority must be coherent (G2a):
+          # productionExecutionPin == trustedAdmissionWorkflowSha, and both
+          # are the git blob sha of admission-check.yml (content-addressed).
+          curl -fsS -H "$AUTH" \
+            "$API/contents/config/policy/epoch_manifest.json?ref=main" \
+            -o /tmp/epoch_manifest.json \
+            || fail "cannot read epoch_manifest.json @main (fail-closed)"
+          PROMOTED="$(jq -r '.productionExecutionPin' /tmp/epoch_manifest.json)"
+          printf '%s' "$PROMOTED" | grep -qE '^[0-9a-f]{40}$' \
+            || fail "productionExecutionPin='$PROMOTED' is not 40-hex (fail-closed)"
+          curl -fsS -H "$AUTH" \
+            "$API/contents/config/trusted_writer_set.json?ref=main" \
+            -o /tmp/trusted_writer_set.json \
+            || fail "cannot read trusted_writer_set.json @main (fail-closed)"
+          # The writer set carries full-line // doc comments — strip before jq
+          # (same convention as landing-integrity / verify_trusted_writer_set.sh).
+          TWS="$(sed -E 's|^[[:space:]]*//.*$||' /tmp/trusted_writer_set.json \
+            | jq -r '.trustedAdmissionWorkflowSha')"
+          printf '%s' "$TWS" | grep -qE '^[0-9a-f]{40}$' \
+            || fail "trustedAdmissionWorkflowSha='$TWS' is not 40-hex (fail-closed)"
+          [ "$PROMOTED" = "$TWS" ] \
+            || fail "epoch authority inconsistent: manifest.productionExecutionPin($PROMOTED) != trustedAdmissionWorkflowSha($TWS) — PREPARED unmet, promotion in flight; no pin may merge while the epoch authority is mid-transition (fail-closed)"
+
+          # PINNED — every changed pin commit must contain the promoted
+          # admission workflow blob. This is the cross-boundary monotonic
+          # binding: the pin commit is inside the promoted epoch, or the PR
+          # does not land.
+          while IFS= read -r PIN; do
+            [ -n "$PIN" ] || continue
+            BLOB="$(curl -fsS -H "$AUTH" \
+              "$API/contents/.github/workflows/admission-check.yml?ref=$PIN" \
+              | jq -r '.sha' || true)"
+            printf '%s' "$BLOB" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "cannot resolve admission-check.yml blob at pin $PIN (fail-closed)"
+            [ "$BLOB" = "$PROMOTED" ] \
+              || fail "pin is not an epoch-promoted SHA: pin=$PIN blob(admission-check.yml@pin)=$BLOB promoted=$PROMOTED — wait for Axiom to promote, or re-run Dependabot after promotion lands (fail-closed; DEBT#473)"
+          done < /tmp/promoted_pins.txt
+
+          echo "PIN_PROMOTION: OK (PINNED) — all changed pins resolve to the epoch-promoted admission workflow blob $PROMOTED (manifest == TWS, 3-way binding verified)"
