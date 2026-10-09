@@ -11,5 +11,7 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 12
+    cooldown:
+      default-days: 0
     registries:
       - github-axiom
