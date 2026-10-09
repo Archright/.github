@@ -136,7 +136,16 @@ jobs:
   # .github/workflows/admission-check.yml matches
   # trustedAdmissionWorkflowSha in trusted_writer_set.json.
   # Also enforces atomicity: if head modifies either file, both
-  # must be in the PR diff (else fail-closed).
+  # must be in the PR diff (else fail-closed) — classified by TWS
+  # field identity (the twsFieldState principle, Axiom PR #669):
+  # the TWS path carries TWO independently-bound fields, and a
+  # trustedCheckerTreeClosure re-anchor with the pin VALUE
+  # (trustedAdmissionWorkflowSha) unchanged advances neither leg
+  # of the pair equality (pin == admission-check.yml blob sha),
+  # so it is NOT a pin change and does not violate atomicity.
+  # Fail-closed: a pin VALUE move, or an undeterminable
+  # classification (unreadable/unparsable/schema-incomplete TWS
+  # at either revision), keeps the full pair requirement.
   #
   # Design decision: head self-consistency (not base) is the
   # right target because head changes are reviewed via other
@@ -186,11 +195,14 @@ jobs:
             || fail "admission-check.yml blob sha mismatch: expected=$EXPECTED_SHA actual=$ACTUAL_SHA (pair invariant violated)"
           
           echo "WRITER_SET: OK — admission-check.yml blob sha matches trustedAdmissionWorkflowSha in head"
-      - name: "[integrity] Verify atomicity — both pair files in diff if either is modified"
+      - name: "[integrity] Verify atomicity — TWS field classification (pin move vs closure-only re-anchor)"
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          BASE_SHA_PR: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA_MG: ${{ github.event.merge_group.base_sha }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           fail() { echo "ATOMICITY: FAIL — $1 (fail-closed)" >&2; exit 1; }
@@ -206,21 +218,102 @@ jobs:
           else
             # merge_group: no PR object (PR_NUMBER empty — E2E round-1 실측 404).
             # changed set는 candidate 자체에서 유도: git diff base_sha..G (서버-유도 merge_group 페이로드).
-            BASE_SHA="${{ github.event.merge_group.base_sha }}"
-            [ -n "$BASE_SHA" ] || fail "merge_group.base_sha empty — cannot derive candidate diff (fail-closed)"
-            printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' \
-              || fail "merge_group.base_sha '$BASE_SHA' not 40-hex (fail-closed)"
-            CHANGED="$(git diff --name-only "$BASE_SHA" "${{ github.sha }}")" \
+            [ -n "$BASE_SHA_MG" ] || fail "merge_group.base_sha empty — cannot derive candidate diff (fail-closed)"
+            printf '%s' "$BASE_SHA_MG" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "merge_group.base_sha '$BASE_SHA_MG' not 40-hex (fail-closed)"
+            CHANGED="$(git diff --name-only "$BASE_SHA_MG" "$EVENT_SHA")" \
               || fail "git diff base..candidate failed (fail-closed)"
             MODIFIED_WRITER_SET="$(printf '%s\n' "$CHANGED" | grep -cx 'config/trusted_writer_set.json' || true)"
             MODIFIED_ADMISSION="$(printf '%s\n' "$CHANGED" | grep -cx '.github/workflows/admission-check.yml' || true)"
           fi
 
+          # Classification revisions — exactly the delta the changed set
+          # above covers: merge-base(base.sha, head) for pull_request (the
+          # three-dot base the server-side PR diff is computed against, so
+          # the classification sees only the PR's own delta), the event's
+          # own base for merge_group.
+          if [ -n "$PR_NUMBER" ]; then
+            CLASSIFY_BASE="$(git merge-base "$BASE_SHA_PR" HEAD)" \
+              || fail "cannot resolve merge-base(base.sha, HEAD) — TWS field classification unavailable (fail-closed)"
+            CLASSIFY_HEAD="HEAD"
+          else
+            CLASSIFY_BASE="$BASE_SHA_MG"
+            CLASSIFY_HEAD="$EVENT_SHA"
+          fi
+
+          # tws_field_snapshot REV — canonical TWS field identity at a git
+          # revision (mirror of twsFieldSnapshot in Axiom
+          # tools/ci/epoch_transaction_gate.nim, PR #669): the pin VALUE
+          # (trustedAdmissionWorkflowSha — the admission-check.yml blob
+          # binding) and the closure identity (trustedCheckerTreeClosure as
+          # sorted "mode sha path" lines). Prints "pin<TAB>closure".
+          # Exit 1 = unreadable / unparsable / schema-incomplete / pin not
+          # 40-hex → the caller fail-closes (both fields treated changed).
+          tws_field_snapshot() {
+            local rev="$1" raw stripped pin closure
+            raw="$(git show "${rev}:config/trusted_writer_set.json" 2>/dev/null)" || return 1
+            [ -n "$raw" ] || return 1
+            # full-line // doc comment strip (same convention as the
+            # consistency step above and tools/ci/verify_trusted_writer_set.sh)
+            stripped="$(printf '%s\n' "$raw" | sed -E 's|^[[:space:]]*//.*$||')"
+            pin="$(printf '%s\n' "$stripped" | jq -r '.trustedAdmissionWorkflowSha // empty' 2>/dev/null)" || return 1
+            printf '%s' "$pin" | grep -qE '^[0-9a-f]{40}$' || return 1
+            closure="$(printf '%s\n' "$stripped" | jq -r '
+              .trustedCheckerTreeClosure as $c
+              | if ($c | type) != "object"
+                then error("trustedCheckerTreeClosure missing or not an object")
+                else ($c | to_entries
+                           | (if any(.[]; (.value | type) != "object"
+                                        or ((.value.mode // "") | type != "string")
+                                        or (.value.mode | length == 0)
+                                        or ((.value.sha // "") | type != "string")
+                                        or (.value.sha | length == 0))
+                              then error("closure entry schema-incomplete (mode/sha must be non-empty strings)")
+                              else . end)
+                           | map("\(.value.mode) \(.value.sha) \(.key)")
+                           | sort)
+                     | join("\n")
+              end' 2>/dev/null)" || return 1
+            printf '%s\t%s' "$pin" "$closure"
+          }
+
+          # TWS field classification (the twsFieldState principle, Axiom PR
+          # #669 — machine-checkable, fail-closed). The pair requirement
+          # exists to keep the pin VALUE bound to the admission-check.yml
+          # blob; a trustedCheckerTreeClosure re-anchor with the pin VALUE
+          # unchanged advances NEITHER leg of that equality, so it is not a
+          # pin change. Undeterminable classification (unreadable,
+          # unparsable, schema-incomplete at either revision) = BOTH fields
+          # treated changed = full pair requirement (fail-closed).
+          CLOSURE_REANCHOR_EXEMPT=0
+          if [ "$MODIFIED_WRITER_SET" -gt 0 ]; then
+            if B_SNAP="$(tws_field_snapshot "$CLASSIFY_BASE")" \
+               && H_SNAP="$(tws_field_snapshot "$CLASSIFY_HEAD")"; then
+              B_PIN="${B_SNAP%%$'\t'*}" && B_CLOSURE="${B_SNAP#*$'\t'}"
+              H_PIN="${H_SNAP%%$'\t'*}" && H_CLOSURE="${H_SNAP#*$'\t'}"
+              if [ "$B_PIN" = "$H_PIN" ]; then
+                CLOSURE_REANCHOR_EXEMPT=1
+                if [ "$B_CLOSURE" = "$H_CLOSURE" ]; then
+                  echo "ATOMICITY: NOTE — trusted_writer_set.json edited with BOTH bound fields unchanged (pin value trustedAdmissionWorkflowSha equal, closure identity equal — not a pin change; pair equality untouched)"
+                else
+                  echo "ATOMICITY: NOTE — trustedCheckerTreeClosure re-anchor only (pin value trustedAdmissionWorkflowSha unchanged: $B_PIN — not a pin change; pair equality untouched; closure CONTENT equality is owned by the merge-time rotation check)"
+                fi
+              else
+                echo "ATOMICITY: NOTE — trustedAdmissionWorkflowSha pin VALUE moved ($B_PIN → $H_PIN) — full pair requirement applies"
+              fi
+            else
+              echo "ATOMICITY: NOTE — TWS field classification unavailable (unreadable/unparsable/schema-incomplete at $CLASSIFY_BASE or $CLASSIFY_HEAD) — fail-closed: BOTH fields treated changed, full pair requirement applies"
+            fi
+          fi
+
           # If either trusted_writer_set.json or admission-check.yml is modified,
-          # both must be in the diff (atomicity).
+          # both must be in the diff (atomicity) — exempting ONLY the classified
+          # closure-only re-anchor (pin value unchanged).
           if [ "$MODIFIED_WRITER_SET" -gt 0 ] || [ "$MODIFIED_ADMISSION" -gt 0 ]; then
             if [ "$MODIFIED_WRITER_SET" -eq 0 ] || [ "$MODIFIED_ADMISSION" -eq 0 ]; then
-              fail "atomicity violation: PR modifies trusted_writer_set.json or admission-check.yml but not both — both must be in the diff"
+              if [ "$CLOSURE_REANCHOR_EXEMPT" -ne 1 ]; then
+                fail "atomicity violation: PR modifies trusted_writer_set.json or admission-check.yml but not both — both must be in the diff"
+              fi
             fi
           fi
 
