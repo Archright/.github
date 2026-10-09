@@ -10,6 +10,8 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+      time: "01:17"
+      timezone: "Asia/Seoul"
     open-pull-requests-limit: 10
     registries:
       - github-axiom
