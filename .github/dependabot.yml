@@ -1,3 +1,4 @@
+# S5 build-skip(62294da2) 반영 핀 회전 트리거
 # Q4 주석 회피 fix(f68049cd9) 반영 핀 회전 트리거
 # quirk Q4 fix(49fdfba1e) 반영 핀 회전 트리거
 # callee pin 회전은 main 갱신 시 이 설정 변경/스케줄 job이 트리거한다 (venue-split 활성화용)
