@@ -184,7 +184,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@88b52abece2f18272d90f48883f7f1df699faaca
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@9d82b5ca97c2b658806c17b9124c70cc6431cc0a
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
@@ -295,7 +295,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@88b52abece2f18272d90f48883f7f1df699faaca
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9d82b5ca97c2b658806c17b9124c70cc6431cc0a
     with:
       stage: attest
 
@@ -506,7 +506,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@88b52abece2f18272d90f48883f7f1df699faaca
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@9d82b5ca97c2b658806c17b9124c70cc6431cc0a
     with:
       stage: verdict
 
