@@ -1,3 +1,4 @@
+# ④ 전 경로 평가 세대(9d82b5ca) 반영 핀 회전 트리거
 # rotation 정합 fix(88b52abe) 반영 핀 회전 트리거
 # verdict deriver toolchain fix(73ed69a5) 반영 핀 회전 트리거
 # DEBT#501 큐 치료 in-place derived-closure 유도(#659 e54de52e4) 반영 핀 회전 트리거
