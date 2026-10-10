@@ -106,7 +106,7 @@ jobs:
   #       소비자 L2의 deriver-재실행 digest 등식이 같은 산출을 재현한다).
   #     pin-H.json — git show H:config/trusted_writer_set.json 원문(JSONC).
   #     identity.json — {schema:"axiom/derived-closure-identity/v1",
-  #       candidateHeadSha(파생 ref H — MG에서는 G=merge_group.head_sha),
+  #       candidateHeadSha(파생 ref H — 주제 헤드: PR head sha, MG에서는 G의 parent2=PR 헤드 — ADR-0033 §C, 2026-10-10 정합),
   #       baseSha(B), pinHeadBlobSha(blob of trusted_writer_set.json@H),
   #       runAttempt} — 전부 40-hex/정수 검증 후 업로드.
   #     pin@B는 담지 않는다 — 소비자가 B 워크스페이스에서 직접 읽는 현행
