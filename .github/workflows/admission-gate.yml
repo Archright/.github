@@ -431,7 +431,7 @@ jobs:
     needs: [closure-deriver]
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@88b52abece2f18272d90f48883f7f1df699faaca
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@15da70d87b60bc184fc755246c6d55e3cfd1d5a0
     with:
       target_sha: ${{ github.sha }}
       force_full: false
