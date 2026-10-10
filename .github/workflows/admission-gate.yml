@@ -106,7 +106,7 @@ jobs:
   #       소비자 L2의 deriver-재실행 digest 등식이 같은 산출을 재현한다).
   #     pin-H.json — git show H:config/trusted_writer_set.json 원문(JSONC).
   #     identity.json — {schema:"axiom/derived-closure-identity/v1",
-  #       candidateHeadSha(파생 ref H — MG에서는 G=merge_group.head_sha),
+  #       candidateHeadSha(파생 ref H — 주제 헤드: PR head sha, MG에서는 G의 parent2=PR 헤드 — ADR-0033 §C, 2026-10-10 정합),
   #       baseSha(B), pinHeadBlobSha(blob of trusted_writer_set.json@H),
   #       runAttempt} — 전부 40-hex/정수 검증 후 업로드.
   #     pin@B는 담지 않는다 — 소비자가 B 워크스페이스에서 직접 읽는 현행
@@ -207,6 +207,22 @@ jobs:
           fail() { echo "CLOSURE: FAIL — $1 (fail-closed)" >&2; exit 1; }
           printf '%s' "$BASE_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "base(B) malformed"
           printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || fail "head(H) malformed"
+
+          # H := SUBJECT head (ADR-0033 §C merge re-anchor, 2026-10-10 정합).
+          # 생산자(identity.json/derived-H/pin-H)와 소비자(admission-check.yml
+          # L1/L2)는 반드시 같은 파생 ref를 말해야 한다: pull_request는 head
+          # sha, merge_group은 run head의 parent2(PR 헤드 — head_ref 파싱 없음).
+          # G의 trial-merge 트리는 PR이 closure 멤버를 건드리면 set(H)도
+          # set(B)도 아니므로 G에서 파생하면 회전 앵커가 오염된다(실측
+          # 2026-10-10, runs 38025440784/38026805440 — L1이 주제 헤드와 G를
+          # 비교해 wrong-run으로 deny). G는 parent2 조회 키로만 남는다.
+          if [ -z "${SL02_PR_HEAD:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+            SUBJ="$(git rev-parse "${HEAD_SHA}^2" 2>/dev/null || true)"
+            printf '%s' "$SUBJ" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "cannot resolve subject head (parent2 of $HEAD_SHA)"
+            HEAD_SHA="$SUBJ"
+            echo "[closure] merge_group: H re-bound to subject head(parent2)=$HEAD_SHA"
+          fi
 
           /tmp/deriver --ref "$HEAD_SHA" | LC_ALL=C sort > /tmp/derived-H.txt \
             || fail "deriver --ref H failed (UNRESOLVED members — fail-closed)"
