@@ -311,7 +311,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@8c0e591b951095daa67f498a3549d03bb52c65a1
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@574c7ca1a2d7214fc041b3a9a6efa1415a3c48c4
     with:
       stage: attest
 
@@ -447,7 +447,7 @@ jobs:
     needs: [closure-deriver]
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@d66a6f0cba06340410dda564026b5b460a59c559
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@574c7ca1a2d7214fc041b3a9a6efa1415a3c48c4
     with:
       target_sha: ${{ github.sha }}
       force_full: false
@@ -522,7 +522,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@8c0e591b951095daa67f498a3549d03bb52c65a1
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@574c7ca1a2d7214fc041b3a9a6efa1415a3c48c4
     with:
       stage: verdict
 
