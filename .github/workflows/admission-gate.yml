@@ -533,6 +533,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      # ── U-23 카나리 (fromJSON 미사용 — 빈 값에서도 템플릿이 죽지 않는다) ──
+      # org required workflow가 대상 저장소 위에서 실행될 때 ${{ vars.* }} 가
+      # 어느 저장소의 변수로 해석되는지 확정한다. 실측 후 이 step을 제거한다.
+      - name: "U-23 vars-context probe (temporary)"
+        run: |
+          set -euo pipefail
+          echo "github.repository   = ${{ github.repository }}"
+          echo "github.workflow     = ${{ github.workflow }}"
+          echo "github.workflow_ref = ${{ github.workflow_ref }}"
+          echo "github.event_name   = ${{ github.event_name }}"
+          echo "vars.CI_RUNNER_MAP  = '[${{ vars.CI_RUNNER_MAP }}]'"
+          echo "vars.CI_RUNNER_MAP empty? = ${{ vars.CI_RUNNER_MAP == '' }}"
+          echo "vars.ANY_UNSET      = '[${{ vars.__AXIOM_U23_PROBE_UNSET__ }}]'"
       - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
         env:
           RESULT_CLOSURE_DERIVER: ${{ needs.closure-deriver.result }}
