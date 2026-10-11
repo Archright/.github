@@ -1,0 +1,24 @@
+# U-23 카나리: org required workflow 컨텍스트에서 vars 가 어느 저장소로 해석되는가.
+# workflow_dispatch 전용 — 자동 트리거 없음. 목적 달성 후 삭제.
+name: vars-context-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "report context resolution"
+        run: |
+          set -euo pipefail
+          echo "github.repository      = ${{ github.repository }}"
+          echo "github.workflow        = ${{ github.workflow }}"
+          echo "github.workflow_ref    = ${{ github.workflow_ref }}"
+          echo "vars.CI_RUNNER_MAP     = [${{ vars.CI_RUNNER_MAP }}]"
+          echo "vars defined?          = ${{ vars.CI_RUNNER_MAP != '' }}"
+          echo "runner_group test      = [${{ fromJSON(vars.CI_RUNNER_MAP).group }}]"
