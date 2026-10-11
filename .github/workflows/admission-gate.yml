@@ -142,9 +142,7 @@ jobs:
   #     상태와 동일(필수 체크는 pin-promotion-gate가 별도)이다.
   # ──────────────────────────────────────────────────────────────
   closure-deriver:
-    runs-on:
-      group: ${{ fromJSON(vars.CI_RUNNER_MAP).group }}
-      labels: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 30
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
@@ -532,9 +530,7 @@ jobs:
     name: admission-check
     needs: [closure-deriver, attest, mint-prepare, mint-publish, verdict, gateway]
     if: ${{ always() }}
-    runs-on:
-      group: ${{ fromJSON(vars.CI_RUNNER_MAP).group }}
-      labels: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
