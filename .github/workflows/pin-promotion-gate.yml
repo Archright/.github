@@ -141,6 +141,13 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}
           AXIOM_READONLY_TOKEN: ${{ secrets.AXIOM_READONLY_TOKEN }}
+          # DEBT#473 break-glass (2026-10-12): architect-provisioned allowlist of
+          # 40-hex admission-check.yml blobs admitted as promotion candidates
+          # while Axiom main still records the previous epoch (Gate-A deadlock:
+          # the promoted blob itself is dispatch-broken, so promotion cannot
+          # land through the queue). Empty/unset = strict promoted-only
+          # behavior, byte-identical to the pre-amendment contract.
+          AXIOM_PIN_ALLOWLIST: ${{ vars.AXIOM_PIN_ALLOWLIST }}
         run: |
           set -euo pipefail
           fail() { echo "PIN_PROMOTION: FAIL — $1 (fail-closed)" >&2; exit 1; }
@@ -209,8 +216,16 @@ jobs:
               | jq -r '.sha' || true)"
             printf '%s' "$BLOB" | grep -qE '^[0-9a-f]{40}$' \
               || fail "cannot resolve admission-check.yml blob at pin $PIN (fail-closed)"
-            [ "$BLOB" = "$PROMOTED" ] \
-              || fail "pin is not an epoch-promoted SHA: pin=$PIN blob(admission-check.yml@pin)=$BLOB promoted=$PROMOTED — wait for Axiom to promote, or re-run Dependabot after promotion lands (fail-closed; DEBT#473)"
+            if [ "$BLOB" != "$PROMOTED" ]; then
+              case ",$(printf '%s' "${AXIOM_PIN_ALLOWLIST:-}" | tr -d ' ')," in
+                *",$BLOB,"*)
+                  echo "PIN_PROMOTION: break-glass allowlist admits blob $BLOB (architect-provisioned promotion candidate — DEBT#473; remove the variable after Axiom main promotes this blob)"
+                  ;;
+                *)
+                  fail "pin is not an epoch-promoted SHA: pin=$PIN blob(admission-check.yml@pin)=$BLOB promoted=$PROMOTED — wait for Axiom to promote, or re-run Dependabot after promotion lands (fail-closed; DEBT#473)"
+                  ;;
+              esac
+            fi
           done < /tmp/promoted_pins.txt
 
           echo "PIN_PROMOTION: OK (PINNED) — all changed pins resolve to the epoch-promoted admission workflow blob $PROMOTED (manifest == TWS, 3-way binding verified)"
