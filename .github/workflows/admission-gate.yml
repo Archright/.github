@@ -28,9 +28,10 @@
 #      terminal이 된 뒤 publish가 평가한다. 2026-10-07 run
 #      37569755722 att.1 레이스 복원 — 아래 mint-publish 주석)
 #   closure-deriver(needs-free 생산자 레인) ──> gateway · verdict
-#     (SL-02 Phase 1-a 복구 — derived-closure 4파일 게시 완료가 모든
+#     (SL-02 Phase 1-a 복구 — derived-closure 게시 완료가 모든
 #      H 코드 실행 job 시작에 선행: V-H 아티팩트 레이스 차단.
-#      아래 closure-deriver 주석)
+#      [S2, 2026-10-13] 아티팩트는 5파일(merge_group/landing — 제3 도출 각
+#      derived-M.txt 포함)·4파일(pull_request) — 아래 closure-deriver 주석)
 #   └─────────────── 여섯 job 모두 success ───────────────> admission-check (aggregate)
 # 분리 근거: `admission`이 predicate까지 수행하면 predicate가 cert를 읽는
 # 시점이 mint-publish보다 앞서서 attempt 1이 NO_CERT로 닫히고 무조건 2차
@@ -60,8 +61,9 @@
 #                     (callee 내부 derived-closure load도 scope_sl02
 #                      게이트로 NO-FIRE)
 #                     [SL-02 Phase 1-a 복구, 2026-10-10] 생산자만 재창설 —
-#                     아래 closure-deriver job이 derived-closure 4파일을
-#                     게시한다. closure 등식 판정(3중 등식·fail-closed)은
+#                     아래 closure-deriver job이 derived-closure를 게시한다
+#                     (merge_group 5파일·pull_request 4파일 — S2, 2026-10-13).
+#                     closure 등식 판정(3중 등식·fail-closed)은
 #                     callee 소관이며 소비자 측은 별도 계약으로 착지한다 —
 #                     본 파일은 게시(determinism·순서·권한)만 고정한다.
 #   gateway         — runner-pool-acceptance H-code 전면 실행; epoch N+6
@@ -99,11 +101,29 @@ jobs:
   # closure-deriver — SL-02 Phase 1-a 생산자 복원 (구 엔진 freeze tag
   # 94a6f0864 = old-ci-freeze-20260928의 동명 job 재작성 — 복사가 아니라
   # 확정 계약에 따른 재작성).
-  #   산출 = same-run artifact `derived-closure`, all-or-none 4파일:
+  #   산출 = same-run artifact `derived-closure`, all-or-none
+  #   5파일(merge_group/landing)·4파일(pull_request — derived-M.txt 미생성):
   #     derived-H.txt / derived-B.txt — deriver 포맷 `<mode> <type> <sha>\t<path>`
   #       (git ls-tree 포맷 그대로), LC_ALL=C 정렬. deriver 실행은
   #       --ref H / --ref B 각 1회, 출력을 파일로 (런 내 재실행 0 —
   #       소비자 L2의 deriver-재실행 digest 등식이 같은 산출을 재현한다).
+  #     derived-M.txt — [S2, 2026-10-13] merge_group(landing) 전용 제3 도출 각
+  #       (ADR-0025 Amendment F). M := `git merge-tree --write-tree B H`
+  #       (H = 위 rebind된 주제 헤드; rc-first — 충돌(rc=1)/기타 오류
+  #       fail-closed) 후 등식 단언 M == tree(GITHUB_SHA): merge queue의
+  #       배치 그룹(선행 PR 포함 진입)에서는 G가 batch trial-merge라 이
+  #       등식이 의도적으로 깨진다 — fail-closed가 올바른 동작이며, 운영상
+  #       canary는 큐가 빈 상태에서 단독 진입시킨다. 유도는 소비자
+  #       (admission-check.yml verdict stage의 in-run 재유도)와 정확히 동일
+  #       인자·정규화: `deriver --tree "$M" --repo "$GITHUB_WORKSPACE"`
+  #       (stdout은 이미 LC_ALL=C 정렬 — `| LC_ALL=C sort`는 멱등, H/B와
+  #       동일 파이프 형태; sha256 대조는 양측 모두 정렬+개행 정규화로
+  #       비교되므로 바이트 동등이 성립). pull_request에서는 M을 만들지
+  #       않는다 — 충돌 PR을 preflight red로 만들지 않기 위함이며 소비는
+  #       landing 전용(admission-check.yml의 derived-closure 다운로드는
+  #       venue==landing 가드). 소비자의 5파일 all-or-none 로더는 부분
+  #       공급(1..4)을 fail-closed로 처리하므로, PR 이벤트에서 이 아티팩트를
+  #       소비하는 경로는 존재하지 않는다.
   #     pin-H.json — git show H:config/trusted_writer_set.json 원문(JSONC).
   #     identity.json — {schema:"axiom/derived-closure-identity/v1",
   #       candidateHeadSha(파생 ref H — 주제 헤드: PR head sha, MG에서는 G의 parent2=PR 헤드 — ADR-0033 §C, 2026-10-10 정합),
@@ -224,6 +244,39 @@ jobs:
             echo "[closure] merge_group: H re-bound to subject head(parent2)=$HEAD_SHA"
           fi
 
+          # 제3 도출 각(ADR-0025 Amendment F) — merge_group(landing) 전용.
+          # M := merge-tree(B, 주제 헤드) — 소비자(admission-check.yml verdict
+          # stage)의 in-run 재유도와 동일 레시피(rc-first merge-tree → 40-hex →
+          # deriver --tree). 등식 단언: M == tree(GITHUB_SHA) — merge queue의
+          # 배치 그룹(선행 PR 포함 진입)에서는 G가 batch trial-merge라 이
+          # 등식이 의도적으로 깨진다 — fail-closed가 올바른 동작이며, 운영상
+          # canary는 큐가 빈 상태에서 단독 진입시킨다. pull_request에서는 M을
+          # 만들지 않는다 — 충돌 PR을 preflight red로 만들지 않기 위함이며
+          # 소비는 landing 전용(소비자 derived-closure 다운로드는
+          # venue==landing 가드, 5파일 all-or-none 로더가 부분 공급 1..4를
+          # fail-closed 처리).
+          HAS_M=0
+          if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+            M_RC=0
+            M="$(git merge-tree --write-tree "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)" || M_RC=$?
+            [ "$M_RC" -eq 0 ] \
+              || fail "merge-tree(B=$BASE_SHA, H=$HEAD_SHA) rc=$M_RC (conflict/merge error — rc-first contract, candidate-delta leg fail-closed)"
+            printf '%s' "$M" | grep -qE '^[0-9a-f]{40}$' \
+              || fail "merge-tree output '$M' not a 40-hex tree OID (candidate-delta leg fail-closed)"
+            G_TREE="$(git rev-parse "${GITHUB_SHA}^{tree}")" \
+              || fail "cannot resolve tree(GITHUB_SHA) — queue identity G=$GITHUB_SHA (candidate-delta leg fail-closed)"
+            [ "$M" = "$G_TREE" ] \
+              || fail "queue identity broken: merge-tree(B,H)=$M != tree(G)=$G_TREE (batched merge-group entry — fail-closed by design; canary enters solo on an empty queue)"
+            /tmp/deriver --tree "$M" --repo "$GITHUB_WORKSPACE" | LC_ALL=C sort > /tmp/derived-M.txt \
+              || fail "deriver --tree M=$M failed (UNRESOLVED members — fail-closed)"
+            test -s /tmp/derived-M.txt || fail "derived-M.txt empty"
+            BAD_M="$(awk -F'\t' 'NF!=2 || $1 !~ /^[0-9]+ [a-z]+ [0-9a-f]{40}$/{c++} END{print c+0}' /tmp/derived-M.txt)"
+            [ "$BAD_M" = "0" ] \
+              || fail "/tmp/derived-M.txt: $BAD_M lines deviate from the deriver format"
+            HAS_M=1
+            echo "[closure] merge_group: M=$M == tree(G) verified — derived-M=$(wc -l < /tmp/derived-M.txt) entries (5-file set)"
+          fi
+
           /tmp/deriver --ref "$HEAD_SHA" | LC_ALL=C sort > /tmp/derived-H.txt \
             || fail "deriver --ref H failed (UNRESOLVED members — fail-closed)"
           /tmp/deriver --ref "$BASE_SHA" | LC_ALL=C sort > /tmp/derived-B.txt \
@@ -273,20 +326,28 @@ jobs:
           [ "$(jq -r '.pinHeadBlobSha' /tmp/derived-closure/identity.json)" = "$PIN_HEAD_BLOB_SHA" ] \
             || fail "identity.json pinHeadBlobSha != blob(H:config/trusted_writer_set.json)"
           cp /tmp/derived-H.txt /tmp/derived-B.txt /tmp/pin-H.json /tmp/derived-closure/
+          if [ "$HAS_M" -eq 1 ]; then
+            cp /tmp/derived-M.txt /tmp/derived-closure/
+          fi
 
-          echo "CLOSURE: OK — derived(H)=$(wc -l < /tmp/derived-H.txt) entries, derived(B)=$(wc -l < /tmp/derived-B.txt) entries, pinHeadBlobSha=$PIN_HEAD_BLOB_SHA, runAttempt=$RUN_ATTEMPT (identity schema axiom/derived-closure-identity/v1; pin@B not carried — consumer reads the B workspace directly)"
+          echo "CLOSURE: OK — derived(H)=$(wc -l < /tmp/derived-H.txt) entries, derived(B)=$(wc -l < /tmp/derived-B.txt) entries, derived(M)=$( [ "$HAS_M" -eq 1 ] && wc -l < /tmp/derived-M.txt || echo absent-pull_request ), pinHeadBlobSha=$PIN_HEAD_BLOB_SHA, runAttempt=$RUN_ATTEMPT (identity schema axiom/derived-closure-identity/v1; pin@B not carried — consumer reads the B workspace directly)"
 
-      - name: "[closure] Upload derived-closure (all-or-none 4 files — no overwrite)"
+      - name: "[closure] Upload derived-closure (all-or-none: merge_group 5 files / pull_request 4 files — no overwrite)"
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: derived-closure
           path: |
             /tmp/derived-closure/derived-H.txt
             /tmp/derived-closure/derived-B.txt
+            /tmp/derived-closure/derived-M.txt
             /tmp/derived-closure/pin-H.json
             /tmp/derived-closure/identity.json
           if-no-files-found: error
           retention-days: 7
+        # derived-M.txt는 pull_request에서 생성되지 않으므로 목록에는 상시
+        # 기재되지만 실제 업로드는 존재하는 파일만(조건부 게시). v4는
+        # 미일치 경로를 조용히 건너뛰고 if-no-files-found는 전체 0건일 때만
+        # 발동한다 — 파일 결손(생산자 red) 계약은 유지된다.
 
   # ──────────────────────────────────────────────────────────────
   # attest — callee 래퍼 stage 1/2 (witness 산출 authority).
