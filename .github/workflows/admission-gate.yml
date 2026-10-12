@@ -184,7 +184,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@4d6da9e213a7c43c0b1016d46d93c4a6cd1c1e17
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
@@ -361,7 +361,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@4d6da9e213a7c43c0b1016d46d93c4a6cd1c1e17
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -418,7 +418,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@4d6da9e213a7c43c0b1016d46d93c4a6cd1c1e17
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -447,7 +447,7 @@ jobs:
     needs: [closure-deriver]
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@4d6da9e213a7c43c0b1016d46d93c4a6cd1c1e17
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
     with:
       target_sha: ${{ github.sha }}
       force_full: false
