@@ -184,7 +184,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@81bd6c608a048e78115a0884a80d4b167847c3ce
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
@@ -311,7 +311,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
     with:
       stage: attest
 
@@ -361,7 +361,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -418,7 +418,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -447,7 +447,7 @@ jobs:
     needs: [closure-deriver]
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
     with:
       target_sha: ${{ github.sha }}
       force_full: false
@@ -522,7 +522,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
     with:
       stage: verdict
 
