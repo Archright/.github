@@ -1,0 +1,41 @@
+name: parse-probe
+
+# 0-job dispatch 교착 진단용 임시 probe (2026-10-12, Axiom 세션).
+# GitHub reusable-workflow 파서가 문제 blob을 어떻게 거부하는지
+# 에러 원문(줄번호 포함)을 직접 노출시키는 3-군 파스 오라클.
+# 판정 대상은 파스 성공 여부(jobs 생성)뿐 — callee 런타임 실패는 무관.
+# 원인 확정 후 이 파일과 브랜치는 폐기(landing 금지).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # 대조군 A: 81bd6c608(blob 22fe84) — 배치 jobs 3·2 정상 발화 실측.
+  control-good-81bd:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@81bd6c608a048e78115a0884a80d4b167847c3ce
+    with:
+      stage: attest
+
+  # 실험군 B: 1243bedf8(blob 4acfc682 = 22fe84 + H6 훙크 원본) — 배치 jobs=0 실측.
+  h6-probe-1243bedf8:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@1243bedf8d232a0ea76bcb7b6325b95425c41673
+    with:
+      stage: attest
+
+  # 실험군 C: 18bb145e9(blob ec54a744 = 22fe84 + H6 env-carried 개정) — 현재 조직 핀.
+  current-pin-18bb145e9:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@18bb145e983305de31a703b017bd8fb701ec0873
+    with:
+      stage: attest
