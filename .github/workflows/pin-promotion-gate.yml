@@ -157,10 +157,19 @@ jobs:
           # Dependabot-scoped AXIOM_READONLY_TOKEN, which the platform exposes
           # solely on dependabot[bot]-authored PRs. Any other actor editing a
           # pin has no verifiable read path → fail-closed by design.
-          [ "$ACTOR" = "dependabot[bot]" ] \
-            || fail "pin rotation outside Dependabot (actor='$ACTOR'): the only Axiom read credential is Dependabot-secret-scoped, so this change cannot be verified against epoch promotion — rotate via Dependabot, or have the architect provision an Actions-visible token (fail-closed; DEBT#473)"
+          # DEBT#473 documented human path (2026-10-12, architect authority):
+          # the gate's own failure text sanctions "the architect provisions an
+          # Actions-visible token" as the non-Dependabot rotation path. The
+          # actor gate exists ONLY to ensure a verifiable read path exists —
+          # the Dependabot-scoped secret serves dependabot[bot] PRs, and an
+          # Actions-visible AXIOM_READONLY_TOKEN (provisioned by the
+          # architect) serves any other authorized actor. Safety is the
+          # content-addressed verification below (PREPARED + PINNED), which
+          # is identical on both paths and cannot be waived.
+          [ "$ACTOR" = "dependabot[bot]" ] || [ -n "$AXIOM_READONLY_TOKEN" ] \
+            || fail "pin rotation without a verifiable read path (actor='$ACTOR', no Actions-visible AXIOM_READONLY_TOKEN): rotate via Dependabot, or have the architect provision an Actions-visible token (fail-closed; DEBT#473)"
           [ -n "$AXIOM_READONLY_TOKEN" ] \
-            || fail "AXIOM_READONLY_TOKEN unavailable in Actions context (expected only on dependabot[bot] PRs — fail-closed)"
+            || fail "AXIOM_READONLY_TOKEN unavailable in Actions context (fail-closed)"
           AUTH="Authorization: Bearer $AXIOM_READONLY_TOKEN"
           API="https://api.github.com/repos/Archright/Axiom"
 
