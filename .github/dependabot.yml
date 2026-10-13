@@ -33,3 +33,4 @@ updates:
       default-days: 0
     registries:
       - github-axiom
+# pin-rotation trigger (Rust Subject v1 #803 ba773d0, TWS b2b8235d) — rotation of admission-check callee pin to post-803 generation
