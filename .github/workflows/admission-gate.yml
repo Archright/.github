@@ -560,6 +560,12 @@ jobs:
 # ──────────────────────────────────────────────────────────────
   gateway:
     needs: [closure-deriver]
+    # 2026-10-13: anchor-resolve is PR-only (skipped in merge_group); its skip
+    # propagated transitively through the needs rollup and skipped this job
+    # (default success()) even though closure-deriver succeeded — measured in
+    # run 38359095521 (mint-publish MINT_PUB_TREE fail-closed, tested-tree-digest 0).
+    # Explicit condition restores the original semantics: run iff closure-deriver succeeded.
+    if: ${{ !cancelled() && needs.closure-deriver.result == 'success' }}
     permissions:
       contents: read
     uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@ed9b37304a242c1abf285249dae548f71d1ddf35
