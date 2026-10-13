@@ -204,7 +204,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@3d64a7afa256a073ac3cdf6eb60b0d5b152e7a6a
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@ed9b37304a242c1abf285249dae548f71d1ddf35
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
