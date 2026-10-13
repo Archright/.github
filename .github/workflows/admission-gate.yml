@@ -476,7 +476,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@ba773d0631b5757525b16d8fd62e220492e98e76
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@aa051134359ee37e50bf30bcc58187c58aa6fe3a
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -533,7 +533,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@ba773d0631b5757525b16d8fd62e220492e98e76
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@aa051134359ee37e50bf30bcc58187c58aa6fe3a
     with:
       stage: publish
       runId: ${{ github.run_id }}
