@@ -161,11 +161,58 @@ jobs:
   #     본 job이 fail-closed red — self-PR 런은 기존에도 전부 failure였던
   #     상태와 동일(필수 체크는 pin-promotion-gate가 별도)이다.
   # ──────────────────────────────────────────────────────────────
+  # anchor-resolve — DAG-head job (Stage 2 단일 앵커 B*, PR venue 전용).
+  # PR venue에서만 실행되며, dispatch 시점의 live main ref tip을 딱 한 번
+  # 해석해 job output `B_STAR`로 게시한다 — 이후 모든 PR-venue 소비자는
+  # 이 값을 소비한다(실행별 run-scoped 단일 확정 앵커; ADR-0027 Amendment
+  # B). merge_group에서는 skip되고(조건식 false), 소비자 표현식은
+  # `needs.anchor-resolve.outputs.B_STAR ||` 선항이 빈 문자열(falsy)로
+  # 수렴하여 기존 이벤트 동결 표현식과 평가 결과가 동일하다 — MG 경로
+  # 불변. 해석 실패/비 40-hex는 fail-closed red (aggregate가 블록).
+  # 판정 아님: B*는 candidate 준비 전용이며 착지 신선도 계약은 GitHub
+  # strict check + queue invalidation에 그대로 위임된다.
+  # skip 전파 주의: 본 job이 MG에서 skip되므로, needs로 본 job을 요구하는
+  # 무조건 실행 job은 `if: !cancelled()`(본 파일 기존 관례 — skipped
+  # needed job에도 계속 실행)를 갖거나 aggregate의 skip-허용 판정을
+  # 거쳐야 한다.
+  # ──────────────────────────────────────────────────────────────
+  anchor-resolve:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
+    timeout-minutes: 5
+    outputs:
+      B_STAR: ${{ steps.resolve.outputs.B_STAR }}
+    permissions:
+      contents: read
+    steps:
+      - name: "[anchor] Resolve run-scoped B* (live main ref tip, once per run)"
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          fail() { echo "[anchor] FAIL — $1 (fail-closed)" >&2; exit 1; }
+          B_STAR="$(gh api repos/Archright/Axiom/git/ref/heads/main --jq .object.sha)" \
+            || fail "GET git/ref/heads/main failed — run-scoped anchor unresolvable"
+          printf '%s' "$B_STAR" | grep -qE '^[0-9a-f]{40}$' \
+            || fail "B_STAR='$B_STAR' not a 40-hex OID"
+          echo "B_STAR=$B_STAR" >> "$GITHUB_OUTPUT"
+          echo "[anchor] B*=$B_STAR (run-scoped single-resolved main tip — candidate preparation only)"
+
+  # ──────────────────────────────────────────────────────────────
+  # closure-deriver — 기존 DAG-head 역할은 anchor-resolve에 이양되고
+  # needs 간선으로 게시 순서만 보장받는다. Stage 2: PR venue의 BASE_SHA는
+  # 실행별 단일 확정 B*(anchor-resolve output)를 최우선 소비 — MG 표현식
+  # 불변(빈 B* → 기존 항 수렴). if: !cancelled() — MG에서 anchor-resolve가
+  # skip되어도 본 job은 계속 실행된다(기존 MG 동작 불변).
+  # ──────────────────────────────────────────────────────────────
   closure-deriver:
+    needs: [anchor-resolve]
+    if: ${{ !cancelled() }}
     runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 30
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      BASE_SHA: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
@@ -369,12 +416,19 @@ jobs:
   # 거부되어 0-job startup_failure — 2026-09-26 첫 런 실증).
   # ──────────────────────────────────────────────────────────────
   attest:
+    # Stage 2: needs [anchor-resolve] — PR venue에서 B* 해석 완료 후 callee
+    # 호출(baseSha 전달). MG에서 anchor-resolve는 skip되지만 if:
+    # !cancelled()(본 파일 기존 관례)로 본 호출은 계속 실행된다 — MG
+    # 동작 불변(기존 needs 없음 = 무조건 실행과 등가).
+    needs: [anchor-resolve]
+    if: ${{ !cancelled() }}
     permissions:
       contents: read
       pull-requests: read
     uses: Archright/Axiom/.github/workflows/admission-check.yml@ed9b37304a242c1abf285249dae548f71d1ddf35
     with:
       stage: attest
+      baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
@@ -395,7 +449,7 @@ jobs:
   # NO-FIRE, verdict fail-closed).
   # ──────────────────────────────────────────────────────────────
   mint-prepare:
-    needs: [attest]
+    needs: [attest, anchor-resolve]
     # Tolerate an upstream attest FAILURE, never survive cancellation.
     # `needs:` is kept because this callee genuinely consumes two artifacts the
     # `attest` call produces — `admission-check-base-artifacts` and the
@@ -428,7 +482,7 @@ jobs:
       runId: ${{ github.run_id }}
       runAttempt: ${{ github.run_attempt }}
       headSha: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
       prNumber: ${{ github.event.pull_request.number || '0' }}
 
   # ──────────────────────────────────────────────────────────────
@@ -470,7 +524,7 @@ jobs:
   # skip 실측은 acceptance 기록).
   # ──────────────────────────────────────────────────────────────
   mint-publish:
-    needs: [mint-prepare, gateway]
+    needs: [mint-prepare, gateway, anchor-resolve]
     # Same rationale as mint-prepare: the certificate must reach the ledger even
     # when this run's attest stage denied, otherwise the verdict predicate still
     # sees NO_CERT. Without this the chain stops at prepare and never converges.
@@ -485,7 +539,7 @@ jobs:
       runId: ${{ github.run_id }}
       runAttempt: ${{ github.run_attempt }}
       headSha: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
-      baseSha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
       prNumber: ${{ github.event.pull_request.number || '0' }}
 
   # ──────────────────────────────────────────────────────────────
@@ -578,7 +632,9 @@ jobs:
   # 거부되어 0-job startup_failure).
   # ──────────────────────────────────────────────────────────────
   verdict:
-    needs: [mint-publish, closure-deriver]
+    # Stage 2: needs에 anchor-resolve 추가(baseSha 컨텍스트 참조 요구) —
+    # if: !cancelled() 기존 관례로 MG skip 전파로부터 안전.
+    needs: [mint-publish, closure-deriver, anchor-resolve]
     if: ${{ !cancelled() }}
     permissions:
       contents: read
@@ -586,16 +642,19 @@ jobs:
     uses: Archright/Axiom/.github/workflows/admission-check.yml@ed9b37304a242c1abf285249dae548f71d1ddf35
     with:
       stage: verdict
+      baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
 
   admission-check:
     name: admission-check
-    needs: [closure-deriver, attest, mint-prepare, mint-publish, verdict, gateway]
+    needs: [anchor-resolve, closure-deriver, attest, mint-prepare, mint-publish, verdict, gateway]
     if: ${{ always() }}
     runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       - name: "[verdict] Every needed job must be success (skipped -> FAILURE, never green)"
         env:
+          RESULT_ANCHOR_RESOLVE: ${{ needs.anchor-resolve.result }}
+          EVENT_NAME: ${{ github.event_name }}
           RESULT_CLOSURE_DERIVER: ${{ needs.closure-deriver.result }}
           RESULT_ATTEST: ${{ needs.attest.result }}
           RESULT_MINT_PREPARE: ${{ needs.mint-prepare.result }}
@@ -605,6 +664,16 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "ADMISSION_GATE: FAIL — $1 (fail-closed)" >&2; exit 1; }
+          # Stage 2: anchor-resolve는 PR venue 전용 — PR에서는 success만
+          # 허용되고, MG(비 PR)에서만 skip이 허용된다(실행 자체가 없는
+          # 정상 상태). 그 외의 result는 fail-closed.
+          if [ "$RESULT_ANCHOR_RESOLVE" = "success" ]; then
+            :
+          elif [ "$RESULT_ANCHOR_RESOLVE" = "skipped" ] && [ "$EVENT_NAME" != "pull_request" ]; then
+            :
+          else
+            fail "needed job 'anchor-resolve' result='$RESULT_ANCHOR_RESOLVE' (event=$EVENT_NAME — expected 'success' on pull_request, 'skipped' only off-PR)"
+          fi
           [ "$RESULT_CLOSURE_DERIVER" = "success" ] \
             || fail "needed job 'closure-deriver' result='$RESULT_CLOSURE_DERIVER' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_ATTEST" = "success" ] \
@@ -617,4 +686,4 @@ jobs:
             || fail "needed job 'verdict' result='$RESULT_VERDICT' (expected 'success' — skipped/cancelled/failed must block, never green)"
           [ "$RESULT_GATEWAY" = "success" ] \
             || fail "needed job 'gateway' result='$RESULT_GATEWAY' (expected 'success' — skipped/cancelled/failed must block, never green)"
-          echo "[verdict] OK — closure-deriver ∧ attest ∧ mint-prepare ∧ mint-publish ∧ verdict ∧ gateway callee succeeded"
+          echo "[verdict] OK — anchor-resolve ∧ closure-deriver ∧ attest ∧ mint-prepare ∧ mint-publish ∧ verdict ∧ gateway callee succeeded"
