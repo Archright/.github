@@ -568,7 +568,7 @@ jobs:
     if: ${{ !cancelled() && needs.closure-deriver.result == 'success' }}
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@ba773d0631b5757525b16d8fd62e220492e98e76
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@c88dc77d00c67cce9cb5eddf326443f11dcaecff
     with:
       target_sha: ${{ github.sha }}
       force_full: false
