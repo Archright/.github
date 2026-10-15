@@ -48,8 +48,10 @@
 # 슬라이스 검증이 epoch의 semantics다.
 #
 # required check context = admission-check (JOB NAME) 불변 — 이 파일의
-# 존재 조건. org ruleset 24041674(axiom-admission-gate)의 workflows
-# 규칙이 이 파일을 sha pin하며, Axiom repo ruleset 20303214의
+# 존재 조건. org ruleset 24233738(axiom-admission-gate)이 이 파일을
+# ref: main(가변)으로 참조하며, 불변 SHA pin은 Archright/Axiom
+# docs/spec/admission-generation.md의 promotion 절차로 적용한다.
+# Axiom repo ruleset 20303214의
 # required_status_checks == ["admission-check"]가 verdict를 소비한다.
 # required check 이름·bypass_actors·enforcement 공백은 전부 불변.
 #
