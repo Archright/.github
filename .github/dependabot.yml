@@ -33,6 +33,14 @@ updates:
     open-pull-requests-limit: 12
     cooldown:
       default-days: 0
+    # Trust-boundary 4핀 자동 회전 중단(Slice A, 2026-10-15) — 회전으로 인한
+    # CI 사고 연쇄(2026-10-12/13). 재승격은 Archright/Axiom
+    # docs/spec/admission-generation.md의 명시적 promotion 절차를 따른다.
+    ignore:
+      - dependency-name: "Archright/Axiom/.github/workflows/admission-check.yml"
+      - dependency-name: "Archright/Axiom/.github/workflows/certificate-mint.yml"
+      - dependency-name: "Archright/Axiom/.github/workflows/runner-pool-acceptance.yml"
+      - dependency-name: "Archright/Axiom/.github/actions/setup-axiom-toolchain"
     registries:
       - github-axiom
 # pin-rotation trigger (Rust Subject v1 #803 ba773d0, TWS b2b8235d) — rotation of admission-check callee pin to post-803 generation
