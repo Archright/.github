@@ -618,17 +618,22 @@ jobs:
   # `attest`와 동일 SHA의 admission-check.yml을 `stage: verdict`로 한 번 더
   # 호출한다. callee는 이 단계에서 비로소 MergeAdmissible predicate를
   # 평가하고 그 exit code가 check conclusion에 투영된다 (SL-05).
-  # needs: [mint-publish, closure-deriver] — predicate의 certificate source는 같은 run의
-  # subject-certificate-<run_attempt> artifact (ADR-0022 §D5-3 `--cert`)이므로
-  # 퍼블리시 이후에만 판정한다. 이 엣지가 없으면 predicate는 NO_CERT로 닫힌다.
+  # needs: [mint-prepare, closure-deriver] — predicate의 certificate source는 같은 run의
+  # subject-certificate-<run_attempt> artifact (ADR-0022 §D5-3 `--cert`)이며 그 artifact는
+  # mint-prepare가 업로드한다 — mint-publish는 원장 append(P7)만 수행하므로 verdict에 줄
+  # 입력이 없다 (publish→verdict는 스케줄링 산물 — Axiom 사전등록
+  # serial_chain_dag_prereg_2026-10-17 §2). cert exists before predicate는 그대로 —
+  # 인증서는 prepare 뒤 즉시 존재한다. publish 성공 요구는 폐지되지 않는다 — 아래
+  # admission-check 롤업(7-fold needs)이 mint-publish를 직접 요구하며 required check
+  # 게이트로 남는다.
   # closure-deriver 간선: verdict stage는 derived-closure 아티팩트의 소비자 —
   # 생산자 게시 완료 이후에만 판정한다 (V-H 아티팩트 레이스 차단,
   # SL-02 Phase 1-a DAG 고정). closure-deriver 실패 시에도 본 job은
   # if: !cancelled()로 실행을 계속한다(조건식 job은 needed job 실패·스킵에도
   # 계속 — 공식) → callee가 부재/불완전 아티팩트를 fail-closed로 보고하고,
   # aggregate의 6중 ∧가 독립 차단한다(never green).
-  #   attest ─> mint-prepare ─> mint-publish ─> verdict
-  #   closure-deriver ─────────────────────────┘ (needs 간선 — 게시 순서만)
+  #   attest ─> mint-prepare ─────────────────┬─> verdict   (mint-publish ∥ verdict — 원장 append만)
+  #   closure-deriver ────────────────────────┘ (needs 간선 — 게시 순서만)
   # 이 경로에 역방향 엣지가 없으므로 사이클이 없다. cycle은 GitHub가
   # 계획 단계에서 job 0개로 전체 거부한다
   # (docs/evidence/org_gate_handoff_2026-10-04.md §4).
@@ -642,7 +647,7 @@ jobs:
   verdict:
     # Stage 2: needs에 anchor-resolve 추가(baseSha 컨텍스트 참조 요구) —
     # if: !cancelled() 기존 관례로 MG skip 전파로부터 안전.
-    needs: [mint-publish, closure-deriver, anchor-resolve]
+    needs: [mint-prepare, closure-deriver, anchor-resolve]
     if: ${{ !cancelled() }}
     permissions:
       contents: read
