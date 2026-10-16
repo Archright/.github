@@ -3,7 +3,8 @@
 #
 # Incident (Archright/Axiom docs/evidence/n7_runtime_investigation_terminal_
 # 2026-10-01.md, 28-minute window): Dependabot rotates the five callee pins
-# in admission-gate.yml independently of Axiom-side epoch promotion, so a
+# in admission-gate-v2.yml (renamed from admission-gate.yml — G1 Lever-B,
+# 2026-10-16) independently of Axiom-side epoch promotion, so a
 # "new pin + old epoch" or "new epoch + un-promoted pin" window could land
 # on main and block acceptance. This check closes that window at the only
 # surface where pins change: PRs against Archright/.github.
