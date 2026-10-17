@@ -253,7 +253,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@ba773d0631b5757525b16d8fd62e220492e98e76
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@18b180094a19096f15a268eeb110a1c7f2f4cfba
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
@@ -570,7 +570,7 @@ jobs:
     if: ${{ !cancelled() && needs.closure-deriver.result == 'success' }}
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@ba773d0631b5757525b16d8fd62e220492e98e76
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@18b180094a19096f15a268eeb110a1c7f2f4cfba
     with:
       target_sha: ${{ github.sha }}
       force_full: false
