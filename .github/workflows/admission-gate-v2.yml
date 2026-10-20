@@ -427,7 +427,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@208325917b6b687595b23ba859ae120f02c06989
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@53b46bf14572bcdcbb63da6efb2a6f0ea6574425
     with:
       stage: attest
       baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
@@ -652,7 +652,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@208325917b6b687595b23ba859ae120f02c06989
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@53b46bf14572bcdcbb63da6efb2a6f0ea6574425
     with:
       stage: verdict
       baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
