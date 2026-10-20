@@ -78,6 +78,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Out-of-band waiver must not exist. The break-glass branch is gone from
+      # the code; this step makes its REINTRODUCTION impossible to miss. A repo
+      # variable is not a check: it can be set without any gate passing, has no
+      # expiry, and leaves no consumption record (2026-10-20 measurement: gate
+      # RED → variable created 12 s later → GREEN 3 min later, admitting a
+      # dangling, never-promoted pin).
+      - name: "[promotion] No out-of-band pin waiver (vars.AXIOM_PIN_ALLOWLIST must be empty)"
+        env:
+          WAIVER: ${{ vars.AXIOM_PIN_ALLOWLIST }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WAIVER:-}" ]; then
+            echo "PIN_PROMOTION: FAIL — vars.AXIOM_PIN_ALLOWLIST is set; the pin waiver path was removed on 2026-10-21 and must not be reintroduced (fail-closed)" >&2
+            exit 1
+          fi
+          echo "PIN_PROMOTION: waiver absent (no out-of-band pin bypass configured)"
+
       # ────────────────────────────────────────────────────────────
       # Step 1 — derive the set of Axiom callee pins this PR changes.
       # Server-derived diff for pull_request (same channel as
@@ -142,13 +159,10 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}
           AXIOM_READONLY_TOKEN: ${{ secrets.AXIOM_READONLY_TOKEN }}
-          # DEBT#473 break-glass (2026-10-12): architect-provisioned allowlist of
-          # 40-hex admission-check.yml blobs admitted as promotion candidates
-          # while Axiom main still records the previous epoch (Gate-A deadlock:
-          # the promoted blob itself is dispatch-broken, so promotion cannot
-          # land through the queue). Empty/unset = strict promoted-only
-          # behavior, byte-identical to the pre-amendment contract.
-          AXIOM_PIN_ALLOWLIST: ${{ vars.AXIOM_PIN_ALLOWLIST }}
+          # The DEBT#473 break-glass allowlist (2026-10-12) was REMOVED on
+          # 2026-10-21: it let a repo variable turn this judgment green without
+          # any check passing. Strict promoted-only behavior is now the only
+          # behavior, and the step above reds if the variable reappears.
         run: |
           set -euo pipefail
           fail() { echo "PIN_PROMOTION: FAIL — $1 (fail-closed)" >&2; exit 1; }
@@ -218,14 +232,14 @@ jobs:
             printf '%s' "$BLOB" | grep -qE '^[0-9a-f]{40}$' \
               || fail "cannot resolve admission-check.yml blob at pin $PIN (fail-closed)"
             if [ "$BLOB" != "$PROMOTED" ]; then
-              case ",$(printf '%s' "${AXIOM_PIN_ALLOWLIST:-}" | tr -d ' ')," in
-                *",$BLOB,"*)
-                  echo "PIN_PROMOTION: break-glass allowlist admits blob $BLOB (architect-provisioned promotion candidate — DEBT#473; remove the variable after Axiom main promotes this blob)"
-                  ;;
-                *)
-                  fail "pin is not an epoch-promoted SHA: pin=$PIN blob(admission-check.yml@pin)=$BLOB promoted=$PROMOTED — wait for Axiom to promote, or re-run Dependabot after promotion lands (fail-closed; DEBT#473)"
-                  ;;
-              esac
+              # No waiver path. The 2026-10-12 DEBT#473 break-glass variable was
+              # removed on 2026-10-21: it turned this gate from RED to GREEN
+              # three minutes after the gate had correctly rejected an
+              # unpromoted (dangling) pin, with the waiver provisioned 12
+              # seconds before the green run and no expiry/scope/consumption
+              # record. Promotion must happen on Axiom main first (PREPARED);
+              # the pin flip is then mechanically admitted by this equality.
+              fail "pin is not an epoch-promoted SHA: pin=$PIN blob(admission-check.yml@pin)=$BLOB promoted=$PROMOTED — promote on Axiom main first, then rotate (fail-closed; DEBT#473)"
             fi
           done < /tmp/promoted_pins.txt
 
