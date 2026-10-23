@@ -68,7 +68,7 @@ jobs:
     # Display name only — the check-run id stays the job id above.
     name: trust-surface-codeowners${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
     if: github.repository != 'Archright/.github'
-    runs-on: ubuntu-latest
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       # B checkout — the base branch is the authority for CODEOWNERS
@@ -161,7 +161,7 @@ jobs:
     # Display name only — the check-run id stays the job id above.
     name: trusted-writer-set-pairing${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
     if: github.repository != 'Archright/.github'
-    runs-on: ubuntu-latest
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       # Head checkout — we verify the PR's own tree for self-
@@ -339,7 +339,7 @@ jobs:
     # Display name only — the check-run id stays the job id above.
     name: merge-admission-sanity${{ github.repository == 'Archright/.github' && ' (Skipped — mirror inputs absent)' || '' }}
     if: github.repository != 'Archright/.github'
-    runs-on: ubuntu-latest
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       - name: "[integrity] Checkout head (policy file at PR tip)"
