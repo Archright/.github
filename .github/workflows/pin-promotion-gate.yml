@@ -70,7 +70,7 @@ permissions:
 jobs:
   pin-promotion-gate:
     name: "pin-promotion-gate (DEBT#473)"
-    runs-on: ubuntu-24.04
+    runs-on: [ "${{ fromJSON(vars.CI_RUNNER_MAP).x64 }}" ]
     timeout-minutes: 5
     steps:
       - name: "[promotion] Checkout (candidate tree for merge_group diffs)"
