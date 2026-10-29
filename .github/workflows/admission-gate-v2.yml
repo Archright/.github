@@ -16,6 +16,16 @@
 # callee select는 GITHUB_SHA만 소비) + verdict needs [admission,
 # mint-prepare, mint-publish, gateway] — SL-10 decision envelope
 # 발화 + gateway lane 결과를 verdict에 결속 (넷 다 success만 GREEN).
+# Epoch N+7 promotion (2026-10-29): callee pin rotation — 양쪽 mint 래퍼
+# @d117ae8e2 (Axiom main, PR #1117). Callee diff @9aaee76f..@d117ae8e2 =
+# subject-certificate 전송 아티팩트 `retention-days: 30 → 3` (+ comment)
+# 단 하나 — 증거 본문·입력 계약·writer·required check 무변경 (정본 증거는
+# axiom/certificates side-ref ledger). 동기: subject-certificate가 live
+# Actions storage의 51%(3,379.5 MB / 7.13 GB)를 점유했고, 30일 보존이 월
+# 50 GB-월 포함량(37,200 GB-h)을 소진시켜 upload 하드블록 → admission-check
+# 실패 → merge 차단. 소비자는 전부 동일 run 내부(mint publish P1/P3,
+# verdict --cert)이며 실행 상한 120분의 36배 여유. epoch 기록:
+# Axiom docs/evidence/epoch_record_mint_retention_2026-10-29.md.
 # FORWARD (2026-09-29, 복구 D3): 수리 PR #331/#332/#333/#334 착지 —
 # K를 N+5 shape로 복귀 (양쪽 래퍼 @c55f0482e — ircheck 소비 + P3 mkdir
 # + libpcre3 패리티 prepare·publish). N+5는 복구 E의 acceptance green
@@ -434,7 +444,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────
   # mint-prepare — certificate-mint callee 래퍼 (SL-12, epoch N+4 승격).
-  # certificate-mint.yml@4b7719e15382405c641f79c2f95db32218c90bcf (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
+  # callee pin 현행: @d117ae8e2 (epoch N+7 — 아래 uses:). 역사: @4b7719e153
+  # (callee ssh fix chain: #340 G2a 페어 + #341 event_name — B3 해소)
   # (PR #329 feat/epoch-n5-sl04 — N+5 main merge sha, C5/C1 계약 개정:
   # prepare build-base-artifacts 소비) stage=prepare
   # (read tier — callee prepare job-level contents: read; publish는 N+4 K
@@ -478,7 +489,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9aaee76f09748837ecf0c04779b8d2bdbc9a71c3
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@d117ae8e2230906d4517a890d6b01e8b3c1e8c03
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -489,8 +500,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────
   # mint-publish — certificate-mint callee 래퍼 (SL-04, epoch N+5 승격).
-  # certificate-mint.yml@6edfd7a50 (PR #329 feat/epoch-n5-sl04 —
-  # N+5 main merge sha) stage=publish (write tier — THE single
+  # callee pin 현행: @d117ae8e2 (epoch N+7 — 아래 uses:). 역사: @6edfd7a50
+  # (PR #329 feat/epoch-n5-sl04 — N+5 main merge sha) stage=publish (write tier — THE single
   # contents: write grant in the gate; callee publish job-level
   # contents: write).
   # needs: [mint-prepare, gateway] — publish는 같은 run의
@@ -535,7 +546,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@9aaee76f09748837ecf0c04779b8d2bdbc9a71c3
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@d117ae8e2230906d4517a890d6b01e8b3c1e8c03
     with:
       stage: publish
       runId: ${{ github.run_id }}
