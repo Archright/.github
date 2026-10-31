@@ -26,19 +26,25 @@
 # epoch: promotion cannot be bypassed, only blocked (fail-closed). Wrong
 # epoch activation has no reachable path.
 #
-# Cross-repo read path (honest limitation): Archright/Axiom is PRIVATE and
-# this repo holds zero Actions secrets. The only Axiom-scoped credential
-# that exists is the Dependabot secret AXIOM_READONLY_TOKEN
-# (.github/dependabot.yml registry `github-axiom`), which the platform
-# exposes to Actions exclusively on dependabot[bot]-authored PRs. Hence:
-#   - dependabot[bot] pin PRs  → full content-addressed verification.
-#   - any other actor changing a pin → fail-closed (no verifiable read
-#     path; a human rotation must go through a Dependabot rotation or the
-#     architect must explicitly provision an Actions-visible token — an
-#     authority decision, deliberately not assumed here).
-# The token value is never logged: it is passed only as a curl header,
-# all curl calls are `-fsS` silent, and failures print responses, never
-# the authorization value.
+# Cross-repo read path: Archright/Axiom is PRIVATE, so the verification
+# step mints a short-lived GitHub App installation token IN-JOB (pinned
+# actions/create-github-app-token — the same commit pin as the Axiom-side
+# workflows: merge-queue-rearm / dependabot-auto-merge wiring in
+# Archright/Axiom PR #1125, and the four pre-existing Axiom App-token
+# workflows) from the REARM_APP_ID Actions variable (vars.REARM_APP_ID) /
+# REARM_APP_PRIVATE_KEY Actions secret (the same App as the Axiom
+# merge-queue rearm; installation on Archright/Axiom), per-issuance scoped
+# to contents:read on that one repository; the action's post step revokes
+# the token at job end.
+# Every actor now has a verifiable read path, gated on the secrets being
+# provisioned (owner step, pending at wiring time): without them the mint
+# fails and this gate is RED (fail-closed, merge-blocking by design until
+# provisioned). Note the platform does NOT expose Actions secrets on
+# dependabot[bot]-authored pull_request runs — their full verification
+# happens at the merge_group run (queue admission), where Actions secrets
+# are visible. The token value is never logged: it is passed only as a
+# curl header, all curl calls are `-fsS` silent, and failures print
+# responses, never the authorization value.
 #
 # Judgment scope: ADDED/CHANGED `uses:` lines referencing
 # Archright/Axiom/.github/workflows/*.yml. Added lines must carry a 40-hex
@@ -155,10 +161,26 @@ jobs:
       #   pin's admission-check blob != promoted blob → FAIL
       #                                ("pin is not an epoch-promoted SHA")
       # ────────────────────────────────────────────────────────────
+      - name: "Mint Axiom read App installation token (in-job, same-job consumption, pinned action)"
+        id: axiom-read-app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          # Same App as the Axiom merge-queue rearm (Archright/Axiom PR #1125
+          # wiring): the installation on Archright/Axiom. Per-issuance ceiling
+          # = this gate's only need (Contents reads of the epoch authority and
+          # callee blobs) — the token inherits nothing beyond this even if the
+          # installation carries more. The action's post step revokes it at
+          # job end, so same-job consumption is mandatory.
+          app-id: ${{ vars.REARM_APP_ID }}
+          private-key: ${{ secrets.REARM_APP_PRIVATE_KEY }}
+          owner: Archright
+          repositories: Archright/Axiom
+          permission-contents: read
+
       - name: "[promotion] Verify changed pins are epoch-promoted (fail-closed)"
         env:
           ACTOR: ${{ github.actor }}
-          AXIOM_READONLY_TOKEN: ${{ secrets.AXIOM_READONLY_TOKEN }}
+          AXIOM_PIN_TOKEN: ${{ steps.axiom-read-app-token.outputs.token }}
           # The DEBT#473 break-glass allowlist (2026-10-12) was REMOVED on
           # 2026-10-21: it let a repo variable turn this judgment green without
           # any check passing. Strict promoted-only behavior is now the only
@@ -175,24 +197,20 @@ jobs:
           [ "${UNPINNED_COUNT:-0}" -eq 0 ] \
             || fail "Axiom callee ref added/changed without a 40-hex commit pin (fail-closed)"
 
-          # Read path: private Axiom is readable at runtime only through the
-          # Dependabot-scoped AXIOM_READONLY_TOKEN, which the platform exposes
-          # solely on dependabot[bot]-authored PRs. Any other actor editing a
-          # pin has no verifiable read path → fail-closed by design.
-          # DEBT#473 documented human path (2026-10-12, architect authority):
-          # the gate's own failure text sanctions "the architect provisions an
-          # Actions-visible token" as the non-Dependabot rotation path. The
-          # actor gate exists ONLY to ensure a verifiable read path exists —
-          # the Dependabot-scoped secret serves dependabot[bot] PRs, and an
-          # Actions-visible AXIOM_READONLY_TOKEN (provisioned by the
-          # architect) serves any other authorized actor. Safety is the
-          # content-addressed verification below (PREPARED + PINNED), which
-          # is identical on both paths and cannot be waived.
-          [ "$ACTOR" = "dependabot[bot]" ] || [ -n "$AXIOM_READONLY_TOKEN" ] \
-            || fail "pin rotation without a verifiable read path (actor='$ACTOR', no Actions-visible AXIOM_READONLY_TOKEN): rotate via Dependabot, or have the architect provision an Actions-visible token (fail-closed; DEBT#473)"
-          [ -n "$AXIOM_READONLY_TOKEN" ] \
-            || fail "AXIOM_READONLY_TOKEN unavailable in Actions context (fail-closed)"
-          AUTH="Authorization: Bearer $AXIOM_READONLY_TOKEN"
+          # Read path: private Axiom is read at runtime through the App
+          # installation token minted in this same job
+          # (steps.axiom-read-app-token), per-issuance scoped to
+          # contents:read on Archright/Axiom. The actor gate below exists
+          # ONLY to ensure a verifiable read path exists for whoever edits
+          # a pin — the credential history (Dependabot-scoped read PAT →
+          # App installation token) does not change the judgment. Safety is
+          # the content-addressed verification below (PREPARED + PINNED),
+          # which is identical on all paths and cannot be waived.
+          [ "$ACTOR" = "dependabot[bot]" ] || [ -n "$AXIOM_PIN_TOKEN" ] \
+            || fail "pin rotation without a verifiable read path (actor='$ACTOR', no App installation token): rotate via Dependabot, or have the architect provision the App-token secrets (fail-closed; DEBT#473)"
+          [ -n "$AXIOM_PIN_TOKEN" ] \
+            || fail "App installation token unavailable (REARM_APP_ID Actions variable / REARM_APP_PRIVATE_KEY Actions secret not provisioned, or this run's context cannot read them) (fail-closed)"
+          AUTH="Authorization: Bearer $AXIOM_PIN_TOKEN"
           API="https://api.github.com/repos/Archright/Axiom"
 
           # PREPARED — Axiom main's epoch authority must be coherent (G2a):
