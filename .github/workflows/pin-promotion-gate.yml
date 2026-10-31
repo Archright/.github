@@ -31,10 +31,11 @@
 # actions/create-github-app-token — the same commit pin as the Axiom-side
 # workflows: merge-queue-rearm / dependabot-auto-merge wiring in
 # Archright/Axiom PR #1125, and the four pre-existing Axiom App-token
-# workflows) from the Actions secrets REARM_APP_ID / REARM_APP_PRIVATE_KEY
-# (the same App as the Axiom merge-queue rearm; installation on
-# Archright/Axiom), per-issuance scoped to contents:read on that one
-# repository; the action's post step revokes the token at job end.
+# workflows) from the REARM_APP_ID Actions variable (vars.REARM_APP_ID) /
+# REARM_APP_PRIVATE_KEY Actions secret (the same App as the Axiom
+# merge-queue rearm; installation on Archright/Axiom), per-issuance scoped
+# to contents:read on that one repository; the action's post step revokes
+# the token at job end.
 # Every actor now has a verifiable read path, gated on the secrets being
 # provisioned (owner step, pending at wiring time): without them the mint
 # fails and this gate is RED (fail-closed, merge-blocking by design until
@@ -170,7 +171,7 @@ jobs:
           # callee blobs) — the token inherits nothing beyond this even if the
           # installation carries more. The action's post step revokes it at
           # job end, so same-job consumption is mandatory.
-          app-id: ${{ secrets.REARM_APP_ID }}
+          app-id: ${{ vars.REARM_APP_ID }}
           private-key: ${{ secrets.REARM_APP_PRIVATE_KEY }}
           owner: Archright
           repositories: Archright/Axiom
@@ -208,7 +209,7 @@ jobs:
           [ "$ACTOR" = "dependabot[bot]" ] || [ -n "$AXIOM_PIN_TOKEN" ] \
             || fail "pin rotation without a verifiable read path (actor='$ACTOR', no App installation token): rotate via Dependabot, or have the architect provision the App-token secrets (fail-closed; DEBT#473)"
           [ -n "$AXIOM_PIN_TOKEN" ] \
-            || fail "App installation token unavailable (REARM_APP_ID / REARM_APP_PRIVATE_KEY not provisioned as Actions secrets, or this run's context cannot read them) (fail-closed)"
+            || fail "App installation token unavailable (REARM_APP_ID Actions variable / REARM_APP_PRIVATE_KEY Actions secret not provisioned, or this run's context cannot read them) (fail-closed)"
           AUTH="Authorization: Bearer $AXIOM_PIN_TOKEN"
           API="https://api.github.com/repos/Archright/Axiom"
 
