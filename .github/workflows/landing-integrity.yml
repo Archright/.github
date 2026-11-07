@@ -321,15 +321,19 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────
   # Job 3 — merge_admission.json sanity.
-  # requiredValidations must be non-empty, workflowId must be an
-  # integer in each entry, certRequired must be a boolean present.
+  # requiredValidations must be non-empty, each entry must bind its
+  # workflow identity by workflowPath (non-empty string) and carry
+  # workflowIdObservation {value: integer, observedAt: non-empty
+  # string} (v1.19.0 shape — path-primary identity; the numeric id
+  # is a measured observation, never a binding), certRequired must
+  # be a boolean present.
   # Prevents vacating the admission policy by accident — vacated
   # state must be an explicit architect-reviewed change; if the
   # policy intentionally contains a vacated marker, detect the
   # specific state and require it to be unchanged from base OR the
   # PR touches config/policy/merge_admission.json. For v1, the
   # simpler rule applies: policy file may only change in ways that
-  # keep requiredValidations a non-empty array (v1.7.0 shape) —
+  # keep requiredValidations a non-empty array (v1.19.0 shape) —
   # vacating = fail.
   # ──────────────────────────────────────────────────────────────
   merge-admission-sanity:
@@ -360,16 +364,21 @@ jobs:
           VALIDATIONS_TYPE="$(jq -r '.requiredValidations | type' "$POLICY")"
           [ "$VALIDATIONS_TYPE" = "array" ] || fail "requiredValidations is not an array (type=$VALIDATIONS_TYPE)"
           COUNT="$(jq '.requiredValidations | length' "$POLICY")"
-          [ "$COUNT" -gt 0 ] || fail "requiredValidations is empty (v1.7.0 shape requires at least one entry)"
+          [ "$COUNT" -gt 0 ] || fail "requiredValidations is empty (v1.19.0 shape requires at least one entry)"
 
-          # Each validation entry must have workflowId as an integer.
-          INVALID_IDS="$(jq -r '.requiredValidations[] | select(.workflowId | type != "number") | .workflowId' "$POLICY")"
-          if [ -n "$INVALID_IDS" ]; then
-            fail "requiredValidations contains non-integer workflowId entries: $INVALID_IDS"
-          fi
+          # Each validation entry must bind its workflow identity by
+          # workflowPath (PRIMARY, non-empty string) and carry
+          # workflowIdObservation {value: integer, observedAt:
+          # non-empty string} — v1.19.0 shape.
+          BAD_PATHS="$(jq '[.requiredValidations[] | select((.workflowPath | type) != "string" or (.workflowPath | length) == 0)] | length' "$POLICY")"
+          [ "$BAD_PATHS" -eq 0 ] || fail "requiredValidations has $BAD_PATHS entry/entries with missing or empty workflowPath (v1.19.0 binds identity by workflowPath)"
+          BAD_IDS="$(jq '[.requiredValidations[] | select((.workflowIdObservation.value | type) != "number")] | length' "$POLICY")"
+          [ "$BAD_IDS" -eq 0 ] || fail "requiredValidations has $BAD_IDS entry/entries with non-integer workflowIdObservation.value"
+          BAD_STAMPS="$(jq '[.requiredValidations[] | select((.workflowIdObservation.observedAt | type) != "string" or (.workflowIdObservation.observedAt | length) == 0)] | length' "$POLICY")"
+          [ "$BAD_STAMPS" -eq 0 ] || fail "requiredValidations has $BAD_STAMPS entry/entries with missing or empty workflowIdObservation.observedAt"
 
           # certRequired must be present and boolean at the policy level.
           CERT_TYPE="$(jq -r '.certRequired | type' "$POLICY")"
           [ "$CERT_TYPE" = "boolean" ] || fail "certRequired is not a boolean (type=$CERT_TYPE)"
 
-          echo "ADMISSION_POLICY: OK — requiredValidations non-empty ($COUNT entries), workflowId integer, certRequired boolean"
+          echo "ADMISSION_POLICY: OK — requiredValidations non-empty ($COUNT entries), workflowPath bound, workflowIdObservation {value integer, observedAt present}, certRequired boolean"
