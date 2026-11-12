@@ -263,7 +263,7 @@ jobs:
           done
 
       - name: "[closure] Pinned toolchain (setup-axiom-toolchain — nim 2.2.10, no inline choosenim)"
-        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@60d610237701c188b1102dbc8d7de2e3215d2226
+        uses: Archright/Axiom/.github/actions/setup-axiom-toolchain@c021c33801455a481e05b75c396d95c84bbdc45d
         with:
           cache-save-enabled: 'false'
           cache-build-source: ${{ env.BASE_SHA }}
@@ -437,7 +437,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@60d610237701c188b1102dbc8d7de2e3215d2226
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@c021c33801455a481e05b75c396d95c84bbdc45d
     with:
       stage: attest
       baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
@@ -489,7 +489,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@60d610237701c188b1102dbc8d7de2e3215d2226
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c021c33801455a481e05b75c396d95c84bbdc45d
     with:
       stage: prepare
       runId: ${{ github.run_id }}
@@ -546,7 +546,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@60d610237701c188b1102dbc8d7de2e3215d2226
+    uses: Archright/Axiom/.github/workflows/certificate-mint.yml@c021c33801455a481e05b75c396d95c84bbdc45d
     with:
       stage: publish
       runId: ${{ github.run_id }}
@@ -581,7 +581,7 @@ jobs:
     if: ${{ !cancelled() && needs.closure-deriver.result == 'success' }}
     permissions:
       contents: read
-    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@60d610237701c188b1102dbc8d7de2e3215d2226
+    uses: Archright/Axiom/.github/workflows/runner-pool-acceptance.yml@c021c33801455a481e05b75c396d95c84bbdc45d
     with:
       target_sha: ${{ github.sha }}
       force_full: false
@@ -663,7 +663,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: Archright/Axiom/.github/workflows/admission-check.yml@60d610237701c188b1102dbc8d7de2e3215d2226
+    uses: Archright/Axiom/.github/workflows/admission-check.yml@c021c33801455a481e05b75c396d95c84bbdc45d
     with:
       stage: verdict
       baseSha: ${{ needs.anchor-resolve.outputs.B_STAR || github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
