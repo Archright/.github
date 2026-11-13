@@ -1,0 +1,624 @@
+# Axiom PR Admission — Archright/nim-libp2p (trusted admission workflow).
+#
+# Executed by the nim-libp2p ruleset in the TARGET repository context
+# (github.repository == 'Archright/nim-libp2p'): every job carries that repo
+# guard, so this file is inert on Archright/.github's own PRs (all jobs skip).
+# No workflow_dispatch — pull_request is the only trigger.
+#
+# Subject identity: github.sha of the pull_request event (the PR merge branch
+# commit) is the single authority. A non-empty pull_request.merge_commit_sha
+# that disagrees with github.sha is an identity-uncertainty rejection — there
+# is no head.sha fallback.
+#
+# Legs: verify-a / verify-b are two SEPARATE jobs calling the pinned reusable
+# workflow Archright/axiom-cli/.github/workflows/ax-verify.yml@4ca1892… so each
+# leg's reusable-workflow outputs are preserved in their own job namespace
+# (a matrix would collapse outputs to the last successful execution).
+#
+# Fail-closed: admission-integrity and subject-verdict run with !cancelled();
+# a missing record, missing report, or any guard violation is recorded and
+# FAILs the admission — never silently green.
+name: Axiom PR Admission (nim-libp2p)
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  propositions:
+    if: ${{ github.repository == 'Archright/nim-libp2p' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      subject_commit: ${{ steps.subject.outputs.sha }}
+      propositions_sha256: ${{ steps.doc.outputs.propositions_sha256 }}
+    steps:
+      - name: 'Resolve subject commit (single authority: github.sha)'
+        id: subject
+        run: |
+          set -euo pipefail
+          SUBJECT="${GITHUB_SHA}"
+          EVENT_MCS="${{ github.event.pull_request.merge_commit_sha }}"
+          if [ -n "${EVENT_MCS}" ] && [ "${EVENT_MCS}" != "null" ] && [ "${EVENT_MCS}" != "${SUBJECT}" ]; then
+            echo "::error::subject identity uncertain: pull_request.merge_commit_sha '${EVENT_MCS}' != github.sha '${SUBJECT}'; head.sha fallback is forbidden"
+            exit 1
+          fi
+          if ! printf '%s' "${SUBJECT}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::subject commit is not a full 40-hex SHA: '${SUBJECT}'"
+            exit 1
+          fi
+          echo "sha=${SUBJECT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build pinned propositions document
+        id: doc
+        env:
+          SUBJECT_SHA: ${{ steps.subject.outputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          subject_sha = os.environ["SUBJECT_SHA"]
+          template = '{"schema_version":2,"subject":{"repository":"Archright/nim-libp2p","commit":"__SUBJECT_SHA__"},"agent":{"id":"pr-admission-pinned","version":"1"},"propositions":[{"id":"bytesview-toOpenArray-bv-slice","target":"libp2p/utils/bytesview.nim::toOpenArray","specId":"SPEC-LIBP2P-BV-SLICE","source_location":{"file":"libp2p/utils/bytesview.nim","line":18},"explanation":"Adopted proposition (human adoption record: live campaign external-verification-campaign-001, run 43363278211); formal semantics owned by engine spec catalog SPEC-LIBP2P-BV-SLICE"}]}'
+          doc = template.replace("__SUBJECT_SHA__", subject_sha)
+          parsed = json.loads(doc)
+          propositions = parsed.get("propositions")
+          if not isinstance(propositions, list) or len(propositions) < 1:
+              print("::error::adopted proposition set is empty (minimum requirement: at least one proposition)")
+              sys.exit(1)
+          with open("proposals.json", "w", encoding="utf-8") as handle:
+              handle.write(doc)
+          with open("propositions-summary.md", "w", encoding="utf-8") as handle:
+              handle.write("| proposition id | specId |\n")
+              handle.write("| --- | --- |\n")
+              for proposition in propositions:
+                  handle.write(f"| {proposition.get('id')} | {proposition.get('specId')} |\n")
+          print(f"subject_commit={subject_sha}")
+          for proposition in propositions:
+              print(f"proposition id={proposition.get('id')} specId={proposition.get('specId')}")
+          PY
+          python3 -m json.tool proposals.json > /dev/null
+          SHA256_SUM="$(sha256sum proposals.json)"
+          SHA256="$(printf '%s' "${SHA256_SUM}" | awk '{print $1}')"
+          echo "propositions_sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Axiom PR Admission — propositions (pinned)"
+            echo ""
+            echo "- PR number: #${PR_NUMBER}"
+            echo "- head.sha: \`${HEAD_SHA}\`"
+            echo "- base.sha: \`${BASE_SHA}\`"
+            echo "- subject commit (github.sha): \`${SUBJECT_SHA}\`"
+            echo "- propositions_sha256: \`${SHA256}\`"
+            echo ""
+            cat propositions-summary.md
+            echo ""
+            echo '```'
+            printf '%s\n' "${SHA256_SUM}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload propositions artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: propositions
+          path: proposals.json
+          if-no-files-found: error
+
+  verify-a:
+    if: ${{ github.repository == 'Archright/nim-libp2p' }}
+    needs: propositions
+    uses: Archright/axiom-cli/.github/workflows/ax-verify.yml@4ca1892a69abcdb9036ec8a69d7bcedc940507d1
+    with:
+      axiom-version: '0.6.3'
+      subject-repository: 'Archright/nim-libp2p'
+      subject-commit: '${{ needs.propositions.outputs.subject_commit }}'
+      proposals-artifact: 'propositions'
+      run-label: 'A'
+
+  verify-b:
+    if: ${{ github.repository == 'Archright/nim-libp2p' }}
+    needs: propositions
+    uses: Archright/axiom-cli/.github/workflows/ax-verify.yml@4ca1892a69abcdb9036ec8a69d7bcedc940507d1
+    with:
+      axiom-version: '0.6.3'
+      subject-repository: 'Archright/nim-libp2p'
+      subject-commit: '${{ needs.propositions.outputs.subject_commit }}'
+      proposals-artifact: 'propositions'
+      run-label: 'B'
+
+  admission-integrity:
+    if: ${{ !cancelled() && github.repository == 'Archright/nim-libp2p' }}
+    needs: [propositions, verify-a, verify-b]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download evidence leg A
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ax-verify-evidence-propositions-A
+          path: legs/A
+
+      - name: Download evidence leg B
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ax-verify-evidence-propositions-B
+          path: legs/B
+
+      - name: Admission Integrity Checks
+        env:
+          EXPECTED_SUBJECT_COMMIT: ${{ needs.propositions.outputs.subject_commit }}
+          PROPOSITIONS_SHA256: ${{ needs.propositions.outputs.propositions_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          EXPECTED_REPO = "Archright/nim-libp2p"
+          EXPECTED_AXIOM_VERSION = "0.6.3"
+          EXPECTED_SUBJECT_COMMIT = os.environ.get("EXPECTED_SUBJECT_COMMIT", "")
+          PROPOSITIONS_SHA256 = os.environ.get("PROPOSITIONS_SHA256", "")
+          GUARD_ORDER = [
+              "SUBJECT_IDENTITY",
+              "INPUT_EQUALITY",
+              "DETERMINISM",
+              "EVIDENCE_NON_VACUITY",
+              "ZERO_FOOTPRINT",
+              "ENVIRONMENT_EQUALITY",
+          ]
+          TOOLCHAIN_KEYS = ("nim", "z3", "lean", "libpcre3")
+          HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+          violations = {guard: [] for guard in GUARD_ORDER}
+
+          def fail(guard, detail):
+              violations[guard].append(detail)
+
+          def find_record(base):
+              if not os.path.isdir(base):
+                  return None
+              for root, _dirs, files in os.walk(base):
+                  if "verify-record.json" in files:
+                      return os.path.join(root, "verify-record.json")
+              return None
+
+          def load_record(path):
+              if path is None:
+                  return None
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      data = json.load(handle)
+              except (OSError, ValueError):
+                  return None
+              return data if isinstance(data, dict) else None
+
+          def as_int(value):
+              if isinstance(value, bool):
+                  return None
+              if isinstance(value, int):
+                  return value
+              if isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
+                  return int(value.strip())
+              return None
+
+          def as_bool(value):
+              if isinstance(value, bool):
+                  return value
+              if isinstance(value, str):
+                  text = value.strip().lower()
+                  if text == "true":
+                      return True
+                  if text == "false":
+                      return False
+              return None
+
+          leg_paths = {"A": find_record("legs/A"), "B": find_record("legs/B")}
+          records = {leg: load_record(path) for leg, path in leg_paths.items()}
+
+          # EVIDENCE_NON_VACUITY — both record files exist and carry real evidence.
+          for leg in ("A", "B"):
+              if records[leg] is None:
+                  fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verify-record.json missing or unreadable under legs/{leg}")
+                  continue
+              record = records[leg]
+              summary_text = record.get("verdict_summary")
+              if not isinstance(summary_text, str) or not summary_text.strip():
+                  fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verdict_summary is missing or empty")
+              else:
+                  normalized = summary_text.strip().lower()
+                  if normalized.startswith("n/a") or normalized.endswith("n/a"):
+                      fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verdict_summary is n/a-like: {summary_text!r}")
+              prove_exit = as_int(record.get("prove_exit"))
+              if prove_exit not in (0, 1, 3):
+                  fail("EVIDENCE_NON_VACUITY", f"leg {leg}: prove_exit {record.get('prove_exit')!r} is not one of 0/1/3")
+              engine_build_id = record.get("engine_build_id")
+              if not isinstance(engine_build_id, str) or not HEX64.fullmatch(engine_build_id):
+                  fail("EVIDENCE_NON_VACUITY", f"leg {leg}: engine_build_id {engine_build_id!r} is not 64-hex")
+
+          # SUBJECT_IDENTITY — both legs verified exactly this PR subject with this engine.
+          for leg in ("A", "B"):
+              record = records[leg]
+              if record is None:
+                  fail("SUBJECT_IDENTITY", f"leg {leg}: record missing; subject identity unverifiable")
+                  continue
+              if record.get("subject_repository") != EXPECTED_REPO:
+                  fail("SUBJECT_IDENTITY", f"leg {leg}: subject_repository {record.get('subject_repository')!r} != {EXPECTED_REPO!r}")
+              if str(record.get("subject_commit", "")) != EXPECTED_SUBJECT_COMMIT:
+                  fail("SUBJECT_IDENTITY", f"leg {leg}: subject_commit {record.get('subject_commit')!r} != {EXPECTED_SUBJECT_COMMIT!r}")
+              if str(record.get("axiom_version", "")) != EXPECTED_AXIOM_VERSION:
+                  fail("SUBJECT_IDENTITY", f"leg {leg}: axiom_version {record.get('axiom_version')!r} != {EXPECTED_AXIOM_VERSION!r}")
+
+          # INPUT_EQUALITY — both legs consumed the same pinned propositions document.
+          proposals_sha = {leg: (records[leg].get("proposals_sha256") if records[leg] else None) for leg in ("A", "B")}
+          if records["A"] is None or records["B"] is None:
+              fail("INPUT_EQUALITY", "record(s) missing; proposals_sha256 equality unverifiable")
+          elif proposals_sha["A"] is None or proposals_sha["B"] is None or proposals_sha["A"] != proposals_sha["B"]:
+              fail("INPUT_EQUALITY", f"proposals_sha256 mismatch: A={proposals_sha['A']!r} B={proposals_sha['B']!r}")
+
+          # DETERMINISM — both legs report the same real 64-hex canonical digest.
+          canonical = {leg: (records[leg].get("canonical_digest") if records[leg] else None) for leg in ("A", "B")}
+          if records["A"] is None or records["B"] is None:
+              fail("DETERMINISM", "record(s) missing; canonical_digest comparison unverifiable")
+          else:
+              for leg in ("A", "B"):
+                  value = canonical[leg]
+                  if not isinstance(value, str) or not HEX64.fullmatch(value):
+                      fail("DETERMINISM", f"leg {leg}: canonical_digest {value!r} is not 64-hex")
+              if canonical["A"] != canonical["B"]:
+                  fail("DETERMINISM", f"canonical_digest diverged: A={canonical['A']!r} B={canonical['B']!r}")
+
+          # ZERO_FOOTPRINT — subject tree untouched on both legs.
+          for leg in ("A", "B"):
+              record = records[leg]
+              if record is None:
+                  fail("ZERO_FOOTPRINT", f"leg {leg}: record missing; zero-footprint unverifiable")
+                  continue
+              if as_bool(record.get("zero_footprint_ok")) is not True:
+                  fail("ZERO_FOOTPRINT", f"leg {leg}: zero_footprint_ok {record.get('zero_footprint_ok')!r} is not true")
+              pre = record.get("pre_tree_hash")
+              post = record.get("post_tree_hash")
+              if not isinstance(pre, str) or not pre or not isinstance(post, str) or not post or pre != post:
+                  fail("ZERO_FOOTPRINT", f"leg {leg}: pre_tree_hash/post_tree_hash not equal or invalid: pre={pre!r} post={post!r}")
+
+          # ENVIRONMENT_EQUALITY — identical runner image and 4-toolchain pins.
+          if records["A"] is None or records["B"] is None:
+              fail("ENVIRONMENT_EQUALITY", "record(s) missing; environment equality unverifiable")
+          else:
+              runner_a = records["A"].get("runner_image")
+              runner_b = records["B"].get("runner_image")
+              if not isinstance(runner_a, str) or not runner_a or runner_a != runner_b:
+                  fail("ENVIRONMENT_EQUALITY", f"runner_image mismatch: A={runner_a!r} B={runner_b!r}")
+              toolchain_a = records["A"].get("toolchain")
+              toolchain_b = records["B"].get("toolchain")
+              if not isinstance(toolchain_a, dict) or not isinstance(toolchain_b, dict):
+                  fail("ENVIRONMENT_EQUALITY", f"toolchain records missing or invalid: A={toolchain_a!r} B={toolchain_b!r}")
+              else:
+                  for key in TOOLCHAIN_KEYS:
+                      value_a = toolchain_a.get(key)
+                      value_b = toolchain_b.get(key)
+                      if value_a is None or value_b is None or value_a != value_b:
+                          fail("ENVIRONMENT_EQUALITY", f"toolchain.{key} mismatch: A={value_a!r} B={value_b!r}")
+
+          def classify():
+              if records["A"] is None or records["B"] is None:
+                  return "UNCLASSIFIED"
+              prove_exit_a = as_int(records["A"].get("prove_exit"))
+              prove_exit_b = as_int(records["B"].get("prove_exit"))
+              if prove_exit_a is None or prove_exit_b is None:
+                  return "UNCLASSIFIED"
+              if prove_exit_a != prove_exit_b:
+                  return "CONTRADICTION"
+              if prove_exit_a == 0:
+                  return "PROVED_REPRODUCIBLE"
+              if prove_exit_a == 1:
+                  return "DISPROVED_REPRODUCIBLE"
+              if prove_exit_a == 3:
+                  return "REFUSAL_REPRODUCIBLE"
+              return "UNCLASSIFIED"
+
+          classification = classify()
+
+          pr_metadata = {}
+          try:
+              with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
+                  event = json.load(handle)
+              pull_request = event.get("pull_request") or {}
+              if isinstance(pull_request, dict):
+                  pr_metadata = {
+                      "number": pull_request.get("number"),
+                      "head_sha": (pull_request.get("head") or {}).get("sha"),
+                      "base_sha": (pull_request.get("base") or {}).get("sha"),
+                  }
+          except (OSError, ValueError, TypeError):
+              pr_metadata = {}
+
+          guard_status = {guard: ("FAIL" if violations[guard] else "PASS") for guard in GUARD_ORDER}
+          integrity = "PASS" if all(violations[guard] == [] for guard in GUARD_ORDER) else "FAIL"
+
+          report = {
+              "schema": "admission-integrity-report/1",
+              "integrity": integrity,
+              "guards": {guard: {"status": guard_status[guard], "violations": violations[guard]} for guard in GUARD_ORDER},
+              "classification": classification,
+              "canonical_digest": {"A": canonical["A"], "B": canonical["B"]},
+              "prove_exit": {
+                  "A": records["A"].get("prove_exit") if records["A"] else None,
+                  "B": records["B"].get("prove_exit") if records["B"] else None,
+              },
+              "subject": {"repository": EXPECTED_REPO, "commit": EXPECTED_SUBJECT_COMMIT},
+              "propositions_sha256": PROPOSITIONS_SHA256,
+              "pr": pr_metadata,
+              "records": {"A": leg_paths["A"], "B": leg_paths["B"]},
+          }
+
+          with open("guards.jsonl", "w", encoding="utf-8") as handle:
+              for guard in GUARD_ORDER:
+                  handle.write(json.dumps({"guard": guard, "status": guard_status[guard], "violations": violations[guard]}) + "\n")
+
+          with open("admission-integrity-report.json", "w", encoding="utf-8") as handle:
+              json.dump(report, handle, indent=2)
+              handle.write("\n")
+
+          print("== Admission Integrity Checks ==")
+          for guard in GUARD_ORDER:
+              print(f"GUARD {guard_status[guard]}: {guard}")
+              for detail in violations[guard]:
+                  print(f"  - {detail}")
+          print(f"classification={classification}")
+          print(f"canonical_digest A={canonical['A']!r} B={canonical['B']!r}")
+          print(f"subject_commit={EXPECTED_SUBJECT_COMMIT}")
+
+          summary_lines = [
+              "## Axiom PR Admission — admission integrity",
+              "",
+              "| guard | status |",
+              "| --- | --- |",
+          ]
+          for guard in GUARD_ORDER:
+              summary_lines.append(f"| {guard} | {guard_status[guard]} |")
+          summary_lines.extend([
+              "",
+              f"- classification: **{classification}**",
+              f"- canonical_digest A: `{canonical['A']}`",
+              f"- canonical_digest B: `{canonical['B']}`",
+              f"- subject commit: `{EXPECTED_SUBJECT_COMMIT}`",
+              f"- propositions_sha256: `{PROPOSITIONS_SHA256}`",
+          ])
+          if integrity == "FAIL":
+              summary_lines.append("")
+              summary_lines.append("### Violations")
+              for guard in GUARD_ORDER:
+                  for detail in violations[guard]:
+                      summary_lines.append(f"- `{guard}`: {detail}")
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as handle:
+                  handle.write("\n".join(summary_lines) + "\n")
+
+          if integrity == "FAIL":
+              for guard in GUARD_ORDER:
+                  if violations[guard]:
+                      print(f"::error::admission integrity guard violated: {guard}: " + "; ".join(violations[guard]))
+              sys.exit(1)
+          PY
+
+      - name: Upload admission integrity report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: admission-integrity-report
+          path: |
+            guards.jsonl
+            admission-integrity-report.json
+          if-no-files-found: error
+
+  subject-verdict:
+    if: ${{ !cancelled() && github.repository == 'Archright/nim-libp2p' }}
+    needs: [propositions, admission-integrity]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download admission integrity report
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: admission-integrity-report
+          path: integrity
+
+      - name: Download evidence leg A (engine context only — no re-adjudication)
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ax-verify-evidence-propositions-A
+          path: legs/A
+
+      - name: Download evidence leg B (engine context only — no re-adjudication)
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ax-verify-evidence-propositions-B
+          path: legs/B
+
+      - name: Subject verdict mapping
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          REPORT_PATH = "integrity/admission-integrity-report.json"
+          LEG_BASES = {"A": "legs/A", "B": "legs/B"}
+
+          def pr_metadata():
+              try:
+                  with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
+                      event = json.load(handle)
+              except (OSError, ValueError, TypeError):
+                  return {}
+              pull_request = event.get("pull_request") or {}
+              if not isinstance(pull_request, dict):
+                  return {}
+              return {
+                  "number": pull_request.get("number"),
+                  "head_sha": (pull_request.get("head") or {}).get("sha"),
+                  "base_sha": (pull_request.get("base") or {}).get("sha"),
+              }
+
+          def engine_verdict_summaries():
+              summaries = {}
+              for leg, base in LEG_BASES.items():
+                  for root, _dirs, files in os.walk(base):
+                      if "verify-record.json" not in files:
+                          continue
+                      try:
+                          with open(os.path.join(root, "verify-record.json"), encoding="utf-8") as handle:
+                              record = json.load(handle)
+                          if isinstance(record, dict):
+                              summaries[leg] = {"verdict_summary": record.get("verdict_summary")}
+                      except (OSError, ValueError):
+                          pass
+                      break
+              return summaries
+
+          PR_METADATA = pr_metadata()
+          ENGINE_SUMMARIES = engine_verdict_summaries()
+
+          def write_outputs(verdict, log_label, reason, report):
+              report = report if isinstance(report, dict) else {}
+              guards = report.get("guards")
+              if not isinstance(guards, dict):
+                  guards = {}
+              guard_rows = []
+              for name, value in guards.items():
+                  status = value.get("status") if isinstance(value, dict) else None
+                  guard_rows.append((name, status))
+              violated = [name for name, status in guard_rows if status != "PASS"]
+              integrity = report.get("integrity")
+              if not isinstance(integrity, str):
+                  integrity = "FAIL"
+              canonical = report.get("canonical_digest")
+              if not isinstance(canonical, dict):
+                  canonical = {}
+              subject = report.get("subject")
+              if not isinstance(subject, dict):
+                  subject = {}
+              digest_a = canonical.get("A")
+              digest_b = canonical.get("B")
+              subject_commit = subject.get("commit")
+              propositions_sha256 = report.get("propositions_sha256")
+              classification = report.get("classification")
+
+              verdict_doc = {
+                  "schema": "admission-verdict/1",
+                  "subject_verdict": verdict,
+                  "reason": reason,
+                  "classification": classification,
+                  "integrity_status": integrity,
+                  "violated_guards": violated,
+                  "guards": guards,
+                  "canonical_digest": {"A": digest_a, "B": digest_b},
+                  "subject_commit": subject_commit,
+                  "propositions_sha256": propositions_sha256,
+                  "pr": PR_METADATA,
+                  "engine_verdict_summaries": ENGINE_SUMMARIES,
+              }
+              with open("admission-verdict.json", "w", encoding="utf-8") as handle:
+                  json.dump(verdict_doc, handle, indent=2)
+                  handle.write("\n")
+
+              summary_lines = [
+                  "## Axiom PR Admission — verdict (two axes)",
+                  "",
+                  f"### Campaign / Admission Integrity: {integrity}",
+                  "",
+              ]
+              for name, status in guard_rows:
+                  summary_lines.append(f"- {name}: {status}")
+              if not guard_rows:
+                  summary_lines.append("- no guard results available (admission-integrity-report missing or unreadable)")
+              summary_lines.extend([
+                  "",
+                  f"### Subject Verdict: {verdict}",
+                  "",
+                  f"- reason: {reason}",
+                  f"- classification: {classification}",
+                  f"- canonical_digest A: `{digest_a}`",
+                  f"- canonical_digest B: `{digest_b}`",
+                  f"- subject commit: `{subject_commit}`",
+                  f"- propositions_sha256: `{propositions_sha256}`",
+              ])
+              for leg in ("A", "B"):
+                  summary = ENGINE_SUMMARIES.get(leg, {}).get("verdict_summary")
+                  if summary:
+                      summary_lines.append(f"- engine verdict_summary (leg {leg}): {summary}")
+              with open("verdict-summary.md", "w", encoding="utf-8") as handle:
+                  handle.write("\n".join(summary_lines) + "\n")
+              summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as handle:
+                      handle.write("\n".join(summary_lines) + "\n")
+              print(f"SUBJECT_VERDICT={verdict} {log_label}".rstrip())
+              print(f"reason={reason}")
+
+          report = None
+          if os.path.exists(REPORT_PATH):
+              try:
+                  with open(REPORT_PATH, encoding="utf-8") as handle:
+                      loaded = json.load(handle)
+                  if isinstance(loaded, dict):
+                      report = loaded
+              except (OSError, ValueError):
+                  report = None
+
+          if report is None:
+              write_outputs("FAIL", "(evidence integrity)", "FAIL (evidence integrity): admission-integrity-report.json missing or unreadable", None)
+              sys.exit(1)
+
+          guards = report.get("guards")
+          if not isinstance(guards, dict):
+              guards = {}
+          violated = [name for name, value in guards.items() if not (isinstance(value, dict) and value.get("status") == "PASS")]
+          integrity = report.get("integrity")
+          if integrity != "PASS" or violated:
+              detail = ", ".join(violated) if violated else "integrity is not PASS"
+              write_outputs("FAIL", "(evidence integrity)", f"FAIL (evidence integrity): {detail}", report)
+              sys.exit(1)
+
+          classification = report.get("classification")
+          subject = report.get("subject") if isinstance(report.get("subject"), dict) else {}
+          subject_commit = subject.get("commit")
+
+          if classification == "PROVED_REPRODUCIBLE":
+              write_outputs("PASS", "", "Adopted proposition PROVED reproducibly on the PR subject (both legs)", report)
+              sys.exit(0)
+          if classification == "DISPROVED_REPRODUCIBLE":
+              write_outputs("FAIL", "(disproved)", f"ADOPTED PROPOSITION DISPROVED on PR subject {subject_commit} (reproducible counterexample)", report)
+              sys.exit(1)
+          if classification == "REFUSAL_REPRODUCIBLE":
+              write_outputs("FAIL", "(not ready)", "NOT READY — engine could not adjudicate; pipeline success and subject verdict are separate axes", report)
+              sys.exit(1)
+          if classification in ("CONTRADICTION", "UNCLASSIFIED"):
+              write_outputs("FAIL", "(inconclusive)", f"subject verdict FAIL: classification={classification}", report)
+              sys.exit(1)
+          write_outputs("FAIL", "(unknown classification)", f"subject verdict FAIL: unknown classification {classification!r}", report)
+          sys.exit(1)
+          PY
+
+      - name: Upload admission verdict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: admission-verdict
+          path: |
+            admission-verdict.json
+            verdict-summary.md
+          if-no-files-found: error
