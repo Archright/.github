@@ -309,14 +309,26 @@ jobs:
               if not isinstance(pre, str) or not pre or not isinstance(post, str) or not post or pre != post:
                   fail("ZERO_FOOTPRINT", f"leg {leg}: pre_tree_hash/post_tree_hash not equal or invalid: pre={pre!r} post={post!r}")
 
-          # ENVIRONMENT_EQUALITY — identical runner image and 4-toolchain pins.
+          # ENVIRONMENT_EQUALITY — identical runner OS family, bundle/engine identity, and 4-toolchain pins.
+          # Note: GitHub-hosted runners (`runs-on: ubuntu-24.04`) roll out minor VM snapshot builds
+          # (`<ImageOS>/<ImageVersion>`, e.g. `ubuntu24/20261101.360.1` vs `ubuntu24/20261111.370.1`)
+          # across concurrent jobs outside workflow control, while ax-verify.yml pins the entire
+          # verification toolchain and bundle by SHA-256. Enforce identical non-empty ImageOS family,
+          # identical bundle_sha256, identical engine_build_id, and identical 4-toolchain versions,
+          # and record both full runner_image strings in the report.
           if records["A"] is None or records["B"] is None:
               fail("ENVIRONMENT_EQUALITY", "record(s) missing; environment equality unverifiable")
           else:
               runner_a = records["A"].get("runner_image")
               runner_b = records["B"].get("runner_image")
-              if not isinstance(runner_a, str) or not runner_a or runner_a != runner_b:
-                  fail("ENVIRONMENT_EQUALITY", f"runner_image mismatch: A={runner_a!r} B={runner_b!r}")
+              os_a = runner_a.split("/")[0].strip() if isinstance(runner_a, str) and "/" in runner_a else ""
+              os_b = runner_b.split("/")[0].strip() if isinstance(runner_b, str) and "/" in runner_b else ""
+              if not os_a or not os_b or os_a != os_b:
+                  fail("ENVIRONMENT_EQUALITY", f"runner_image OS family mismatch or invalid: A={runner_a!r} B={runner_b!r}")
+              if records["A"].get("bundle_sha256") != records["B"].get("bundle_sha256") or not records["A"].get("bundle_sha256"):
+                  fail("ENVIRONMENT_EQUALITY", f"bundle_sha256 mismatch: A={records['A'].get('bundle_sha256')!r} B={records['B'].get('bundle_sha256')!r}")
+              if records["A"].get("engine_build_id") != records["B"].get("engine_build_id"):
+                  fail("ENVIRONMENT_EQUALITY", f"engine_build_id mismatch: A={records['A'].get('engine_build_id')!r} B={records['B'].get('engine_build_id')!r}")
               toolchain_a = records["A"].get("toolchain")
               toolchain_b = records["B"].get("toolchain")
               if not isinstance(toolchain_a, dict) or not isinstance(toolchain_b, dict):
