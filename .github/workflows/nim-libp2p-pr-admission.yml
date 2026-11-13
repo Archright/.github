@@ -234,9 +234,17 @@ jobs:
               if not isinstance(summary_text, str) or not summary_text.strip():
                   fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verdict_summary is missing or empty")
               else:
-                  normalized = summary_text.strip().lower()
-                  if normalized.startswith("n/a") or normalized.endswith("n/a"):
-                      fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verdict_summary is n/a-like: {summary_text!r}")
+                  # ax-verify.yml projects verdict_summary as
+                  # "<runOutcome.verdict>/<runOutcome.gateVerdict>/<display.units[0].propositionVerdict>".
+                  # In PR admission the subject is the synthesized PR merge commit (github.sha),
+                  # which differs from the static commit recorded in the spec overlay, so
+                  # display.units (exact-commit scope projection) is empty while
+                  # display.propositions and prove_exit carry the authoritative verdict.
+                  # Non-vacuity therefore requires the 3-segment shape with non-empty,
+                  # non-"n/a" machine outcome segments (segments 0 and 1).
+                  parts = [p.strip().lower() for p in summary_text.strip().split("/")]
+                  if len(parts) != 3 or not parts[0] or not parts[1] or parts[0] == "n/a" or parts[1] == "n/a":
+                      fail("EVIDENCE_NON_VACUITY", f"leg {leg}: verdict_summary has vacuous machine outcome segments: {summary_text!r}")
               prove_exit = as_int(record.get("prove_exit"))
               if prove_exit not in (0, 1, 3):
                   fail("EVIDENCE_NON_VACUITY", f"leg {leg}: prove_exit {record.get('prove_exit')!r} is not one of 0/1/3")
