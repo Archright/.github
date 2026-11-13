@@ -36,16 +36,24 @@ jobs:
     steps:
       - name: 'Resolve subject commit (single authority: github.sha)'
         id: subject
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          # Single authority for pull_request admission is GITHUB_SHA (the newly
+          # synthesized refs/pull/<n>/merge commit for [base.sha, head.sha]).
+          # NOTE: github.event.pull_request.merge_commit_sha in synchronize webhook
+          # payloads is a stale snapshot pointing to the PREVIOUS head's merge commit
+          # and is NOT an authority. Instead, enforce that GITHUB_SHA is a valid 40-hex
+          # merge commit distinct from both head.sha and base.sha (no head fallback).
           SUBJECT="${GITHUB_SHA}"
-          EVENT_MCS="${{ github.event.pull_request.merge_commit_sha }}"
-          if [ -n "${EVENT_MCS}" ] && [ "${EVENT_MCS}" != "null" ] && [ "${EVENT_MCS}" != "${SUBJECT}" ]; then
-            echo "::error::subject identity uncertain: pull_request.merge_commit_sha '${EVENT_MCS}' != github.sha '${SUBJECT}'; head.sha fallback is forbidden"
-            exit 1
-          fi
           if ! printf '%s' "${SUBJECT}" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::subject commit is not a full 40-hex SHA: '${SUBJECT}'"
+            exit 1
+          fi
+          if [ "${SUBJECT}" = "${HEAD_SHA}" ] || [ "${SUBJECT}" = "${BASE_SHA}" ]; then
+            echo "::error::subject identity uncertain: github.sha '${SUBJECT}' is not a synthesized merge commit (head='${HEAD_SHA}', base='${BASE_SHA}'); head.sha fallback is forbidden"
             exit 1
           fi
           echo "sha=${SUBJECT}" >> "${GITHUB_OUTPUT}"
