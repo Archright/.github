@@ -18,6 +18,21 @@
 # Fail-closed: admission-integrity and subject-verdict run with !cancelled();
 # a missing record, missing report, or any guard violation is recorded and
 # FAILs the admission — never silently green.
+#
+# Classification (v2, 2026-11-14): the verdict is computed from persisted
+# engine evidence (ax_proof_state.json, vault-manifest.json), never from the
+# process exit code alone. acceptanceClass is a trusted constant declared in
+# this workflow (the adoption table), NOT injected into proposals.json:
+#   - "law-conformance": exit 0 AND runOutcome.verdict=INCONCLUSIVE AND the
+#     adopted proposition's display verdict=UNKNOWN AND every declaredRequired
+#     unit has a vault record at candidate-or-better status AND census has
+#     >=1 proof candidate / >=1 obligation => LAW_CONFORMANCE_ACCEPTED_
+#     REPRODUCIBLE (candidate-tier evidence; explicitly NOT a formal PROVED
+#     verdict).
+#   - "proof": exit 0 AND verified>0 AND verificationComplete=true AND no
+#     FAIL gate AND no DISPROVED proposition => PROVED_REPRODUCIBLE
+#     (reserved; unreachable until the engine serializes a positive verdict).
+# Exit 0 without the applicable conjuncts => VACUOUS_BLOCKED => FAIL.
 name: Axiom PR Admission (nim-libp2p)
 
 on:
@@ -33,6 +48,7 @@ jobs:
     outputs:
       subject_commit: ${{ steps.subject.outputs.sha }}
       propositions_sha256: ${{ steps.doc.outputs.propositions_sha256 }}
+      acceptance_class: ${{ steps.doc.outputs.acceptance_class }}
     steps:
       - name: 'Resolve subject commit (single authority: github.sha)'
         id: subject
@@ -65,6 +81,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ACCEPTANCE_CLASS: 'law-conformance'
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -95,6 +112,7 @@ jobs:
           SHA256_SUM="$(sha256sum proposals.json)"
           SHA256="$(printf '%s' "${SHA256_SUM}" | awk '{print $1}')"
           echo "propositions_sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
+          echo "acceptance_class=${ACCEPTANCE_CLASS}" >> "${GITHUB_OUTPUT}"
           {
             echo "## Axiom PR Admission — propositions (pinned)"
             echo ""
@@ -163,6 +181,7 @@ jobs:
         env:
           EXPECTED_SUBJECT_COMMIT: ${{ needs.propositions.outputs.subject_commit }}
           PROPOSITIONS_SHA256: ${{ needs.propositions.outputs.propositions_sha256 }}
+          ACCEPTANCE_CLASS: ${{ needs.propositions.outputs.acceptance_class }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -175,6 +194,7 @@ jobs:
           EXPECTED_AXIOM_VERSION = "0.6.4"
           EXPECTED_SUBJECT_COMMIT = os.environ.get("EXPECTED_SUBJECT_COMMIT", "")
           PROPOSITIONS_SHA256 = os.environ.get("PROPOSITIONS_SHA256", "")
+          ACCEPTANCE_CLASS = os.environ.get("ACCEPTANCE_CLASS", "")
           GUARD_ORDER = [
               "SUBJECT_IDENTITY",
               "INPUT_EQUALITY",
@@ -182,6 +202,7 @@ jobs:
               "EVIDENCE_NON_VACUITY",
               "ZERO_FOOTPRINT",
               "ENVIRONMENT_EQUALITY",
+              "EVIDENCE_COHERENCE",
           ]
           TOOLCHAIN_KEYS = ("nim", "z3", "lean", "libpcre3")
           HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -340,6 +361,93 @@ jobs:
                       if value_a is None or value_b is None or value_a != value_b:
                           fail("ENVIRONMENT_EQUALITY", f"toolchain.{key} mismatch: A={value_a!r} B={value_b!r}")
 
+          # --- v2: engine-evidence classification (never exit-code alone) ---
+          def find_evidence(base, name):
+              if not os.path.isdir(base):
+                  return None
+              for root, _dirs, files in os.walk(base):
+                  if name in files:
+                      return os.path.join(root, name)
+              return None
+
+          def load_json(path):
+              if path is None:
+                  return None
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      data = json.load(handle)
+              except (OSError, ValueError):
+                  return None
+              return data if isinstance(data, dict) else None
+
+          engine = {}
+          for leg in ("A", "B"):
+              base = "legs/" + leg
+              engine[leg] = {
+                  "state": load_json(find_evidence(base, "ax_proof_state.json")),
+                  "vault": load_json(find_evidence(base, "vault-manifest.json")),
+              }
+
+          def vault_entries(leg):
+              vault = engine[leg]["vault"] or {}
+              entries = vault.get("entries")
+              return entries if isinstance(entries, list) else []
+
+          def vault_key_set(leg):
+              return {(e.get("modulePath"), e.get("functionName"), e.get("status"),
+                       e.get("solverMethod"), e.get("irHash"))
+                      for e in vault_entries(leg) if isinstance(e, dict)}
+
+          def vault_names(leg):
+              return {e.get("functionName") for e in vault_entries(leg) if isinstance(e, dict)}
+
+          def vault_statuses(leg):
+              return {e.get("functionName"): e.get("status")
+                      for e in vault_entries(leg) if isinstance(e, dict)}
+
+          def census_projection(leg):
+              state = engine[leg]["state"] or {}
+              census = state.get("census")
+              if not isinstance(census, dict):
+                  return None
+              return (tuple(census.get("proofCandidates") or []),
+                      census.get("obligationCount"), census.get("candidateCount"),
+                      census.get("proofCandidateCount"))
+
+          for leg in ("A", "B"):
+              if engine[leg]["state"] is None:
+                  fail("EVIDENCE_COHERENCE", f"leg {leg}: ax_proof_state.json missing or unreadable")
+              if engine[leg]["vault"] is None:
+                  fail("EVIDENCE_COHERENCE", f"leg {leg}: vault-manifest.json missing or unreadable")
+
+          if all(engine[leg]["vault"] is not None for leg in ("A", "B")):
+              if vault_key_set("A") != vault_key_set("B"):
+                  fail("EVIDENCE_COHERENCE", "vault entry set diverged between legs A and B")
+          if all(engine[leg]["state"] is not None for leg in ("A", "B")):
+              if census_projection("A") != census_projection("B"):
+                  fail("EVIDENCE_COHERENCE",
+                       f"census projection diverged: A={census_projection('A')!r} B={census_projection('B')!r}")
+              declared = engine["A"]["state"].get("declaredRequired")
+              if not isinstance(declared, list) or not declared:
+                  fail("EVIDENCE_COHERENCE", "declaredRequired is missing or empty")
+              else:
+                  names_a = vault_names("A")
+                  for unit_id in declared:
+                      name = str(unit_id).split("::")[-1]
+                      if name not in names_a:
+                          fail("EVIDENCE_COHERENCE",
+                               f"declaredRequired unit {unit_id!r} has no vault record (wave-facing name {name!r})")
+
+          def display_proposition(leg):
+              state = engine[leg]["state"] or {}
+              display = state.get("display")
+              if not isinstance(display, dict):
+                  return None
+              props = display.get("propositions")
+              if not isinstance(props, list) or not props:
+                  return None
+              return props[0] if isinstance(props[0], dict) else None
+
           def classify():
               if records["A"] is None or records["B"] is None:
                   return "UNCLASSIFIED"
@@ -349,10 +457,54 @@ jobs:
                   return "UNCLASSIFIED"
               if prove_exit_a != prove_exit_b:
                   return "CONTRADICTION"
+              if any(engine[leg]["state"] is None or engine[leg]["vault"] is None for leg in ("A", "B")):
+                  return "UNCLASSIFIED"
+
+              state_a = engine["A"]["state"]
+              summary = state_a.get("summary") if isinstance(state_a.get("summary"), dict) else {}
+              status_counts = summary.get("statusCounts") if isinstance(summary.get("statusCounts"), dict) else {}
+              verified = as_int(status_counts.get("verified")) or 0
+              failed = as_int(status_counts.get("failed")) or 0
+              outcome = state_a.get("runOutcome") if isinstance(state_a.get("runOutcome"), dict) else {}
+              verdict = outcome.get("verdict")
+              gate = outcome.get("gateVerdict")
+              complete = outcome.get("verificationComplete")
+              prop = display_proposition("A") or {}
+              capability = prop.get("capability") if isinstance(prop.get("capability"), dict) else {}
+              verification = prop.get("verification") if isinstance(prop.get("verification"), dict) else {}
+              prop_verdict = verification.get("verdict")
+              census = state_a.get("census") if isinstance(state_a.get("census"), dict) else {}
+              proof_candidates = as_int(census.get("proofCandidateCount")) or 0
+              obligations = as_int(census.get("obligationCount")) or 0
+              declared = state_a.get("declaredRequired")
+              statuses = vault_statuses("A")
+
+              def required_covered(ok_statuses):
+                  if not isinstance(declared, list) or not declared:
+                      return False
+                  for unit_id in declared:
+                      name = str(unit_id).split("::")[-1]
+                      if statuses.get(name) not in ok_statuses:
+                          return False
+                  return True
+
               if prove_exit_a == 0:
-                  return "PROVED_REPRODUCIBLE"
+                  if ACCEPTANCE_CLASS == "proof":
+                      ok = (verified > 0 and complete is True and verdict != "FAIL"
+                            and gate != "FAIL" and prop_verdict != "DISPROVED")
+                      return "PROVED_REPRODUCIBLE" if ok else "VACUOUS_BLOCKED"
+                  if ACCEPTANCE_CLASS == "law-conformance":
+                      ok = (verdict == "INCONCLUSIVE" and capability.get("status") == "CAPABLE"
+                            and verification.get("attempted") is True and prop_verdict == "UNKNOWN"
+                            and required_covered({"certZ3Candidate", "certGreen", "certLeanVerified"})
+                            and proof_candidates >= 1 and obligations >= 1)
+                      return "LAW_CONFORMANCE_ACCEPTED_REPRODUCIBLE" if ok else "VACUOUS_BLOCKED"
+                  return "UNCLASSIFIED"
               if prove_exit_a == 1:
-                  return "DISPROVED_REPRODUCIBLE"
+                  red_units = [d for d in (declared or [])
+                               if statuses.get(str(d).split("::")[-1]) == "certRed"]
+                  ok = failed > 0 and bool(red_units) and prop_verdict == "DISPROVED"
+                  return "DISPROVED_REPRODUCIBLE" if ok else "FAILED_NO_DISPROOF"
               if prove_exit_a == 3:
                   return "REFUSAL_REPRODUCIBLE"
               return "UNCLASSIFIED"
@@ -375,12 +527,23 @@ jobs:
 
           guard_status = {guard: ("FAIL" if violations[guard] else "PASS") for guard in GUARD_ORDER}
           integrity = "PASS" if all(violations[guard] == [] for guard in GUARD_ORDER) else "FAIL"
+          if integrity == "FAIL" and classification in (
+                  "PROVED_REPRODUCIBLE", "LAW_CONFORMANCE_ACCEPTED_REPRODUCIBLE",
+                  "DISPROVED_REPRODUCIBLE", "REFUSAL_REPRODUCIBLE"):
+              classification = "CONTRADICTION"
 
           report = {
               "schema": "admission-integrity-report/1",
               "integrity": integrity,
               "guards": {guard: {"status": guard_status[guard], "violations": violations[guard]} for guard in GUARD_ORDER},
               "classification": classification,
+              "acceptance_class": ACCEPTANCE_CLASS,
+              "evidence_tier": ("candidate" if classification == "LAW_CONFORMANCE_ACCEPTED_REPRODUCIBLE"
+                                else ("verified" if classification == "PROVED_REPRODUCIBLE" else None)),
+              "proposition_verdicts": {
+                  "A": ((engine["A"]["state"] or {}).get("display", {}) or {}).get("propositions"),
+                  "B": ((engine["B"]["state"] or {}).get("display", {}) or {}).get("propositions"),
+              },
               "canonical_digest": {"A": canonical["A"], "B": canonical["B"]},
               "prove_exit": {
                   "A": records["A"].get("prove_exit") if records["A"] else None,
@@ -554,6 +717,8 @@ jobs:
                   "subject_verdict": verdict,
                   "reason": reason,
                   "classification": classification,
+                  "acceptance_class": report.get("acceptance_class"),
+                  "evidence_tier": report.get("evidence_tier"),
                   "integrity_status": integrity,
                   "violated_guards": violated,
                   "guards": guards,
@@ -583,6 +748,8 @@ jobs:
                   "",
                   f"- reason: {reason}",
                   f"- classification: {classification}",
+                  f"- acceptance class: {report.get('acceptance_class')}",
+                  f"- evidence tier: {report.get('evidence_tier')}",
                   f"- canonical_digest A: `{digest_a}`",
                   f"- canonical_digest B: `{digest_b}`",
                   f"- subject commit: `{subject_commit}`",
@@ -632,6 +799,15 @@ jobs:
           if classification == "PROVED_REPRODUCIBLE":
               write_outputs("PASS", "", "Adopted proposition PROVED reproducibly on the PR subject (both legs)", report)
               sys.exit(0)
+          if classification == "LAW_CONFORMANCE_ACCEPTED_REPRODUCIBLE":
+              write_outputs("PASS", "", "Adopted proposition accepted reproducibly at its declared acceptance class (law-conformance, candidate-tier evidence — NOT a formal PROVED verdict)", report)
+              sys.exit(0)
+          if classification == "VACUOUS_BLOCKED":
+              write_outputs("FAIL", "(vacuous)", "VACUOUS_BLOCKED — exit 0 observed without the acceptance-class evidence conjuncts (no green without evidence)", report)
+              sys.exit(1)
+          if classification == "FAILED_NO_DISPROOF":
+              write_outputs("FAIL", "(no disproof)", "FAILED_NO_DISPROOF — exit 1 observed without a reproducible certRed counterexample", report)
+              sys.exit(1)
           if classification == "DISPROVED_REPRODUCIBLE":
               write_outputs("FAIL", "(disproved)", f"ADOPTED PROPOSITION DISPROVED on PR subject {subject_commit} (reproducible counterexample)", report)
               sys.exit(1)
