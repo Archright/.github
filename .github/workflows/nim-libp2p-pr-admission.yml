@@ -123,7 +123,7 @@ jobs:
     needs: propositions
     uses: Archright/axiom-cli/.github/workflows/ax-verify.yml@4ca1892a69abcdb9036ec8a69d7bcedc940507d1
     with:
-      axiom-version: '0.6.3'
+      axiom-version: '0.6.4'
       subject-repository: 'Archright/nim-libp2p'
       subject-commit: '${{ needs.propositions.outputs.subject_commit }}'
       proposals-artifact: 'propositions'
@@ -134,7 +134,7 @@ jobs:
     needs: propositions
     uses: Archright/axiom-cli/.github/workflows/ax-verify.yml@4ca1892a69abcdb9036ec8a69d7bcedc940507d1
     with:
-      axiom-version: '0.6.3'
+      axiom-version: '0.6.4'
       subject-repository: 'Archright/nim-libp2p'
       subject-commit: '${{ needs.propositions.outputs.subject_commit }}'
       proposals-artifact: 'propositions'
@@ -172,7 +172,7 @@ jobs:
           import sys
 
           EXPECTED_REPO = "Archright/nim-libp2p"
-          EXPECTED_AXIOM_VERSION = "0.6.3"
+          EXPECTED_AXIOM_VERSION = "0.6.4"
           EXPECTED_SUBJECT_COMMIT = os.environ.get("EXPECTED_SUBJECT_COMMIT", "")
           PROPOSITIONS_SHA256 = os.environ.get("PROPOSITIONS_SHA256", "")
           GUARD_ORDER = [
