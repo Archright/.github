@@ -1,6 +1,6 @@
 # Archright
 
-> **Building verification infrastructure for AI-generated software.**
+> **Building verification infrastructure for software.**
 
 Archright is a technology company focused on **software reliability, formal verification, and deterministic engineering systems**.
 
@@ -25,7 +25,7 @@ Our work focuses on:
 * **Machine-checkable invariants**
 * **Reproducible verification results**
 * **Provenance-bearing evidence**
-* **AI-generated software reliability**
+* **software reliability**
 
 ---
 
@@ -33,7 +33,7 @@ Our work focuses on:
 
 ### Core Verification Engine
 
-**Axiom** is Archright's flagship verification engine for **AI-generated software**.
+**Axiom** is Archright's flagship verification engine for software.
 
 Axiom is designed to transform software claims into **deterministic verification workflows and machine-checkable evidence**.
 
@@ -75,7 +75,7 @@ AI should be able to generate and modify software without making verification de
 
 Founder of Archright and builder of Axiom.
 
-Focused on **AI-generated software reliability, formal verification, deterministic systems, and software architecture**.
+Focused on **software reliability, formal verification, deterministic systems, and software architecture**.
 
 * **Blog:** [wintrover.github.io](https://wintrover.github.io)
 * **Contact:** [wintrover@gmail.com](mailto:wintrover@gmail.com)
