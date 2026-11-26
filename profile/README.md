@@ -12,7 +12,7 @@ Our goal is to make software behavior **explicit, reproducible, and machine-veri
 
 ## 🔭 Our Mission
 
-Software now evolves at unprecedented speed.
+AI can generate software at unprecedented speed.
 
 The next challenge is determining whether that software actually satisfies the properties it is supposed to satisfy.
 
